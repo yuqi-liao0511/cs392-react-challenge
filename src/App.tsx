@@ -1,4 +1,4 @@
-import './App.css';
+//import './App.css';
 
 interface Course {
   term: string;
@@ -45,13 +45,27 @@ const schedule: Schedule = {
 const App = () => (
   <main>
     <h1>{schedule.title}</h1>
-    <ul className="course-list">
+
+    <ul className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,11rem),1fr))] items-stretch gap-3">
       {Object.keys(schedule.courses).map((courseKey) => {
         const course = schedule.courses[courseKey];
 
         return (
-          <li key={courseKey}>
-            {course.term} CS {course.number}: {course.title} ({course.meets})
+          <li className="min-w-0" key={courseKey}>
+            <article className="flex h-full flex-col rounded-lg border border-gray-300 bg-white p-4 font-sans text-gray-900 shadow-sm">
+              <h2 className="mb-3 text-xl font-medium leading-snug">
+                <span className="text-blue-700">{course.term}</span> CS{' '}
+                {course.number}
+              </h2>
+
+              <p className="mb-4 text-base leading-relaxed text-gray-700">
+                {course.title}
+              </p>
+
+              <div className="mt-auto border-t border-gray-200 pt-3 text-[0.9375rem] text-gray-700">
+                {course.meets}
+              </div>
+            </article>
           </li>
         );
       })}
