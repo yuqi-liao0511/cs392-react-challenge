@@ -1,34 +1,250 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   fetchCourseSchedule,
+  type Course,
   type CourseSchedule,
   type CourseTerm,
 } from './services/scheduleService';
 
 const terms: CourseTerm[] = ['Fall', 'Winter', 'Spring'];
 
+// ---------- Modal ----------
+
+interface ModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  title: string;
+  children: ReactNode;
+}
+
+const Modal = ({ isOpen, onClose, title, children }: ModalProps) => {
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
+  if (!isOpen) {
+    return null;
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 font-sans"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <section
+        aria-labelledby="modal-title"
+        aria-modal="true"
+        className="w-full max-w-lg rounded-lg bg-white p-6 shadow-xl"
+        role="dialog"
+      >
+        <div className="mb-4 flex items-center justify-between gap-4">
+          <h2 className="text-xl font-semibold text-gray-900" id="modal-title">
+            {title}
+          </h2>
+          <button
+            aria-label={`Close ${title.toLowerCase()}`}
+            className="rounded-md px-3 py-1 text-2xl leading-none text-gray-600 hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
+            onClick={onClose}
+            type="button"
+          >
+            ×
+          </button>
+        </div>
+        {children}
+      </section>
+    </div>
+  );
+};
+
+// ---------- Term selector ----------
+
+interface TermSelectorProps {
+  selection: CourseTerm;
+  setSelection: (term: CourseTerm) => void;
+}
+
+const TermSelector = ({ selection, setSelection }: TermSelectorProps) => (
+  <div aria-label="Select academic term" className="flex flex-wrap gap-2" role="group">
+    {terms.map((term) => {
+      const isSelected = term === selection;
+
+      return (
+        <button
+          aria-pressed={isSelected}
+          className={`rounded-md border px-4 py-2 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${
+            isSelected
+              ? 'border-blue-700 bg-blue-700 text-white'
+              : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'
+          }`}
+          key={term}
+          onClick={() => setSelection(term)}
+          type="button"
+        >
+          {term}
+        </button>
+      );
+    })}
+  </div>
+);
+
+// ---------- Course list ----------
+
+interface CourseListProps {
+  courses: Course[];
+  selection: CourseTerm;
+  selectedIds: Set<string>;
+  toggleSelected: (courseId: string) => void;
+}
+
+const CourseList = ({ courses, selection, selectedIds, toggleSelected }: CourseListProps) => {
+  const termCourses = courses.filter((course) => course.term === selection);
+
+  if (termCourses.length === 0) {
+    return (
+      <p className="font-sans text-gray-700">
+        No {selection} courses are currently available.
+      </p>
+    );
+  }
+
+  return (
+    <ul className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,11rem),1fr))] items-stretch gap-3">
+      {termCourses.map((course) => {
+        const isSelected = selectedIds.has(course.id);
+
+        return (
+          <li className="min-w-0" key={course.id}>
+            <button
+              aria-pressed={isSelected}
+              className={`flex h-full w-full flex-col rounded-lg border p-4 text-left font-sans shadow-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${
+                isSelected
+                  ? 'border-blue-600 bg-blue-50 text-gray-900'
+                  : 'border-gray-300 bg-white text-gray-900 hover:bg-gray-50'
+              }`}
+              onClick={() => toggleSelected(course.id)}
+              type="button"
+            >
+              <span className="mb-3 flex w-full items-center justify-between gap-2 text-xl font-medium leading-snug">
+                <span>
+                  <span className="text-blue-700">{course.term}</span> CS{' '}
+                  {course.number}
+                </span>
+                {isSelected && (
+                  <span
+                    aria-hidden="true"
+                    className="flex size-6 shrink-0 items-center justify-center rounded-full bg-blue-700 text-sm text-white"
+                  >
+                    ✓
+                  </span>
+                )}
+              </span>
+              <span className="mb-4 block text-base leading-relaxed text-gray-700">
+                {course.title}
+              </span>
+              <span className="mt-auto block w-full border-t border-gray-200 pt-3 text-[0.9375rem] text-gray-700">
+                {course.meets}
+              </span>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+};
+
+// ---------- Course plan (pop-up content) ----------
+
+const CoursePlan = ({ selected }: { selected: Course[] }) =>
+  selected.length === 0 ? (
+    <p className="text-gray-700">
+      No courses selected yet. Close this window and click a course card to add
+      it to your plan.
+    </p>
+  ) : (
+    <ul className="max-h-[60vh] space-y-3 overflow-y-auto">
+      {selected.map((course) => (
+        <li className="border-b border-gray-200 pb-3 last:border-b-0" key={course.id}>
+          <h3 className="font-semibold text-gray-900">
+            {course.term} CS {course.number}: {course.title}
+          </h3>
+          <p className="mt-1 text-sm text-gray-700">{course.meets}</p>
+        </li>
+      ))}
+    </ul>
+  );
+
+// ---------- Term page ----------
+
+const TermPage = ({ courses }: { courses: Course[] }) => {
+  const [selection, setSelection] = useState<CourseTerm>('Fall');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [isPlanOpen, setIsPlanOpen] = useState(false);
+
+  const toggleSelected = (courseId: string) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+
+      if (next.has(courseId)) {
+        next.delete(courseId);
+      } else {
+        next.add(courseId);
+      }
+
+      return next;
+    });
+  };
+
+  const selectedCourses = courses.filter((course) => selectedIds.has(course.id));
+
+  return (
+    <>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 font-sans">
+        <TermSelector selection={selection} setSelection={setSelection} />
+        <button
+          className="rounded-md bg-gray-800 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-gray-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-800"
+          onClick={() => setIsPlanOpen(true)}
+          type="button"
+        >
+          Course plan
+        </button>
+      </div>
+
+      <CourseList
+        courses={courses}
+        selection={selection}
+        selectedIds={selectedIds}
+        toggleSelected={toggleSelected}
+      />
+
+      <Modal isOpen={isPlanOpen} onClose={() => setIsPlanOpen(false)} title="Course plan">
+        <CoursePlan selected={selectedCourses} />
+      </Modal>
+    </>
+  );
+};
+
+// ---------- App ----------
+
 const App = () => {
   const [schedule, setSchedule] = useState<CourseSchedule | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [selectedTerm, setSelectedTerm] = useState<CourseTerm>('Fall');
-  const [selectedCourseIds, setSelectedCourseIds] = useState<Set<string>>(
-    () => new Set(),
-  );
-
-  const toggleCourseSelection = (courseId: string) => {
-    setSelectedCourseIds((currentSelection) => {
-      const nextSelection = new Set(currentSelection);
-
-      if (nextSelection.has(courseId)) {
-        nextSelection.delete(courseId);
-      } else {
-        nextSelection.add(courseId);
-      }
-
-      return nextSelection;
-    });
-  };
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -55,116 +271,38 @@ const App = () => {
     void loadSchedule();
 
     return () => controller.abort();
-  }, []);
+  }, [retryCount]);
+
+  const handleRetry = () => {
+    setError(null);
+    setIsLoading(true);
+    setRetryCount((count) => count + 1);
+  };
 
   return (
     <main>
       <h1>{schedule?.title ?? 'Computer Science Courses'}</h1>
+
       {isLoading && (
         <p role="status" className="font-sans text-gray-700">
           Loading course schedule...
         </p>
       )}
+
       {error && (
-        <p role="alert" className="font-sans text-red-700">
-          Unable to load the course schedule: {error}
-        </p>
-      )}
-      {schedule && (
-        <>
-          <div
-            aria-label="Select academic term"
-            className="mb-4 flex flex-wrap gap-2 font-sans"
-            role="group"
+        <div className="font-sans text-red-700">
+          <p role="alert">Unable to load the course schedule: {error}</p>
+          <button
+            type="button"
+            onClick={handleRetry}
+            className="mt-3 rounded-md border border-red-700 px-4 py-2 hover:bg-red-50"
           >
-            {terms.map((term) => {
-              const isSelected = selectedTerm === term;
-
-              return (
-                <button
-                  aria-pressed={isSelected}
-                  className={`rounded-md border px-4 py-2 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${
-                    isSelected
-                      ? 'border-blue-700 bg-blue-700 text-white'
-                      : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'
-                  }`}
-                  key={term}
-                  onClick={() => setSelectedTerm(term)}
-                  type="button"
-                >
-                  {term}
-                </button>
-              );
-            })}
-          </div>
-          <section aria-labelledby="selected-classes-heading" className="mb-6 font-sans">
-            <h2
-              className="mb-2 text-lg font-semibold text-gray-900"
-              id="selected-classes-heading"
-            >
-              Selected classes
-            </h2>
-            {selectedCourseIds.size > 0 ? (
-              <ul className="space-y-1 text-sm text-gray-700">
-                {schedule.courses
-                  .filter((course) => selectedCourseIds.has(course.id))
-                  .map((course) => (
-                    <li key={course.id}>
-                      {course.term} CS {course.number}: {course.title}
-                    </li>
-                  ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-gray-600">
-                Click a course card to add it to your selected classes.
-              </p>
-            )}
-          </section>
-          <ul className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,11rem),1fr))] items-stretch gap-3">
-            {schedule.courses
-              .filter((course) => course.term === selectedTerm)
-              .map((course) => {
-                const isSelected = selectedCourseIds.has(course.id);
-
-                return (
-                  <li className="min-w-0" key={course.id}>
-                    <button
-                      aria-pressed={isSelected}
-                      className={`flex h-full w-full flex-col rounded-lg border p-4 text-left font-sans shadow-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${
-                        isSelected
-                          ? 'border-blue-600 bg-blue-50 text-gray-900'
-                          : 'border-gray-300 bg-white text-gray-900 hover:bg-gray-50'
-                      }`}
-                      onClick={() => toggleCourseSelection(course.id)}
-                      type="button"
-                    >
-                      <span className="mb-3 flex w-full items-center justify-between gap-2 text-xl font-medium leading-snug">
-                        <span>
-                          <span className="text-blue-700">{course.term}</span> CS{' '}
-                          {course.number}
-                        </span>
-                        {isSelected && (
-                          <span
-                            aria-hidden="true"
-                            className="flex size-6 shrink-0 items-center justify-center rounded-full bg-blue-700 text-sm text-white"
-                          >
-                            ✓
-                          </span>
-                        )}
-                      </span>
-                      <span className="mb-4 block text-base leading-relaxed text-gray-700">
-                        {course.title}
-                      </span>
-                      <span className="mt-auto block w-full border-t border-gray-200 pt-3 text-[0.9375rem] text-gray-700">
-                        {course.meets}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-          </ul>
-        </>
+            Retry
+          </button>
+        </div>
       )}
+
+      {schedule && !isLoading && !error && <TermPage courses={schedule.courses} />}
     </main>
   );
 };
