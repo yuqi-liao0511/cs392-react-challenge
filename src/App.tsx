@@ -5,6 +5,7 @@ import {
   type CourseSchedule,
   type CourseTerm,
 } from './services/scheduleService';
+import { hasConflict } from './utilities/timeConflicts';
 
 const terms: CourseTerm[] = ['Fall', 'Winter', 'Spring'];
 
@@ -108,10 +109,17 @@ interface CourseListProps {
   courses: Course[];
   selection: CourseTerm;
   selectedIds: Set<string>;
+  selectedCourses: Course[];
   toggleSelected: (courseId: string) => void;
 }
 
-const CourseList = ({ courses, selection, selectedIds, toggleSelected }: CourseListProps) => {
+const CourseList = ({
+  courses,
+  selection,
+  selectedIds,
+  selectedCourses,
+  toggleSelected,
+}: CourseListProps) => {
   const termCourses = courses.filter((course) => course.term === selection);
 
   if (termCourses.length === 0) {
@@ -126,15 +134,19 @@ const CourseList = ({ courses, selection, selectedIds, toggleSelected }: CourseL
     <ul className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,11rem),1fr))] items-stretch gap-3">
       {termCourses.map((course) => {
         const isSelected = selectedIds.has(course.id);
+        const isBlocked = !isSelected && hasConflict(course, selectedCourses);
 
         return (
           <li className="min-w-0" key={course.id}>
             <button
               aria-pressed={isSelected}
+              disabled={isBlocked}
               className={`flex h-full w-full flex-col rounded-lg border p-4 text-left font-sans shadow-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${
                 isSelected
                   ? 'border-blue-600 bg-blue-50 text-gray-900'
-                  : 'border-gray-300 bg-white text-gray-900 hover:bg-gray-50'
+                  : isBlocked
+                    ? 'cursor-not-allowed border-gray-300 bg-white text-gray-500 opacity-50'
+                    : 'border-gray-300 bg-white text-gray-900 hover:bg-gray-50'
               }`}
               onClick={() => toggleSelected(course.id)}
               type="button"
@@ -152,7 +164,20 @@ const CourseList = ({ courses, selection, selectedIds, toggleSelected }: CourseL
                     ✓
                   </span>
                 )}
+                {isBlocked && (
+                  <span
+                    aria-hidden="true"
+                    className="flex size-5 shrink-0 items-center justify-center rounded-full bg-gray-200 text-xs text-gray-700"
+                  >
+                    ✕
+                  </span>
+                )}
               </span>
+              {isBlocked && (
+                <span className="sr-only">
+                  Unavailable because it conflicts with a selected course.
+                </span>
+              )}
               <span className="mb-4 block text-base leading-relaxed text-gray-700">
                 {course.title}
               </span>
@@ -228,6 +253,7 @@ const TermPage = ({ courses }: { courses: Course[] }) => {
         courses={courses}
         selection={selection}
         selectedIds={selectedIds}
+        selectedCourses={selectedCourses}
         toggleSelected={toggleSelected}
       />
 
