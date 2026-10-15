@@ -111,6 +111,7 @@ interface CourseListProps {
   selectedIds: Set<string>;
   selectedCourses: Course[];
   toggleSelected: (courseId: string) => void;
+  onEdit: (courseId: string) => void;
 }
 
 const CourseList = ({
@@ -119,6 +120,7 @@ const CourseList = ({
   selectedIds,
   selectedCourses,
   toggleSelected,
+  onEdit,
 }: CourseListProps) => {
   const termCourses = courses.filter((course) => course.term === selection);
 
@@ -137,7 +139,10 @@ const CourseList = ({
         const isBlocked = !isSelected && hasConflict(course, selectedCourses);
 
         return (
-          <li className="min-w-0" key={course.id}>
+          <li
+            className="flex min-w-0 flex-col items-start gap-2"
+            key={course.id}
+          >
             <button
               aria-pressed={isSelected}
               disabled={isBlocked}
@@ -185,6 +190,26 @@ const CourseList = ({
                 {course.meets}
               </span>
             </button>
+            <a
+              className="font-sans text-sm font-medium text-blue-700 underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
+              href={`/courses/${encodeURIComponent(course.id)}/edit`}
+              onClick={(event) => {
+                if (
+                  event.button !== 0 ||
+                  event.metaKey ||
+                  event.ctrlKey ||
+                  event.shiftKey ||
+                  event.altKey
+                ) {
+                  return;
+                }
+
+                event.preventDefault();
+                onEdit(course.id);
+              }}
+            >
+              Edit
+            </a>
           </li>
         );
       })}
@@ -215,7 +240,12 @@ const CoursePlan = ({ selected }: { selected: Course[] }) =>
 
 // ---------- Term page ----------
 
-const TermPage = ({ courses }: { courses: Course[] }) => {
+interface TermPageProps {
+  courses: Course[];
+  onEdit: (courseId: string) => void;
+}
+
+const TermPage = ({ courses, onEdit }: TermPageProps) => {
   const [selection, setSelection] = useState<CourseTerm>('Fall');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [isPlanOpen, setIsPlanOpen] = useState(false);
@@ -255,12 +285,87 @@ const TermPage = ({ courses }: { courses: Course[] }) => {
         selectedIds={selectedIds}
         selectedCourses={selectedCourses}
         toggleSelected={toggleSelected}
+        onEdit={onEdit}
       />
 
       <Modal isOpen={isPlanOpen} onClose={() => setIsPlanOpen(false)} title="Course plan">
         <CoursePlan selected={selectedCourses} />
       </Modal>
     </>
+  );
+};
+
+interface CourseEditPageProps {
+  course: Course | undefined;
+  onCancel: () => void;
+}
+
+const CourseEditPage = ({ course, onCancel }: CourseEditPageProps) => {
+  if (!course) {
+    return (
+      <section className="font-sans" aria-labelledby="edit-course-title">
+        <h2 className="mb-4 text-2xl font-semibold" id="edit-course-title">
+          Course not found
+        </h2>
+        <button
+          className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
+          onClick={onCancel}
+          type="button"
+        >
+          Cancel
+        </button>
+      </section>
+    );
+  }
+
+  return (
+    <section className="max-w-lg font-sans" aria-labelledby="edit-course-title">
+      <h2
+        className="mb-4 text-2xl font-semibold text-gray-900"
+        id="edit-course-title"
+      >
+        Edit {course.term} CS {course.number}
+      </h2>
+      <form className="space-y-4" onSubmit={(event) => event.preventDefault()}>
+        <div>
+          <label
+            className="mb-1 block text-sm font-medium text-gray-700"
+            htmlFor="course-title"
+          >
+            Course title
+          </label>
+          <input
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-gray-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
+            defaultValue={course.title}
+            id="course-title"
+            name="title"
+            type="text"
+          />
+        </div>
+        <div>
+          <label
+            className="mb-1 block text-sm font-medium text-gray-700"
+            htmlFor="course-meets"
+          >
+            Meeting times
+          </label>
+          <input
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-gray-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
+            defaultValue={course.meets}
+            id="course-meets"
+            name="meets"
+            type="text"
+          />
+        </div>
+        <button
+          className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
+          onClick={onCancel}
+          type="button"
+        >
+          Cancel
+        </button>
+      </form>
+    </section>
   );
 };
 
@@ -271,6 +376,19 @@ const App = () => {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [retryCount, setRetryCount] = useState(0);
+  const [currentPath, setCurrentPath] = useState(window.location.pathname);
+
+  useEffect(() => {
+    const handlePopState = () => setCurrentPath(window.location.pathname);
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const navigate = (path: string) => {
+    window.history.pushState({}, '', path);
+    setCurrentPath(path);
+  };
 
   useEffect(() => {
     const controller = new AbortController();
@@ -305,6 +423,22 @@ const App = () => {
     setRetryCount((count) => count + 1);
   };
 
+  const editMatch = currentPath.match(/^\/courses\/([^/]+)\/edit\/?$/);
+  let editCourseId: string | undefined;
+
+  if (editMatch) {
+    try {
+      editCourseId = decodeURIComponent(editMatch[1]);
+    } catch {
+      editCourseId = undefined;
+    }
+  }
+
+  const isEditingCourse = editMatch !== null;
+  const editCourse = schedule?.courses.find(
+    (course) => course.id === editCourseId,
+  );
+
   return (
     <main>
       <h1>{schedule?.title ?? 'Computer Science Courses'}</h1>
@@ -328,7 +462,25 @@ const App = () => {
         </div>
       )}
 
-      {schedule && !isLoading && !error && <TermPage courses={schedule.courses} />}
+      {schedule && !isLoading && !error && (
+        <>
+          <div hidden={isEditingCourse}>
+            <TermPage
+              courses={schedule.courses}
+              onEdit={(courseId) =>
+                navigate(`/courses/${encodeURIComponent(courseId)}/edit`)
+              }
+            />
+          </div>
+          {isEditingCourse && (
+            <CourseEditPage
+              key={editCourse?.id ?? 'not-found'}
+              course={editCourse}
+              onCancel={() => navigate('/')}
+            />
+          )}
+        </>
+      )}
     </main>
   );
 };
