@@ -5,9 +5,12 @@ import {
   type CourseSchedule,
   type CourseTerm,
 } from './services/scheduleService';
+import { useForm } from 'react-hook-form';
 import { hasConflict } from './utilities/timeConflicts';
+import { CourseForm, courseFormResolver } from './types/courseForm';
 
 const terms: CourseTerm[] = ['Fall', 'Winter', 'Spring'];
+const formTerms = CourseForm.shape.term.options;
 
 // ---------- Modal ----------
 
@@ -300,6 +303,111 @@ interface CourseEditPageProps {
   onCancel: () => void;
 }
 
+const fieldClass = (hasError: boolean) =>
+  `w-full rounded-md border px-3 py-2 text-gray-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${
+    hasError ? 'border-red-500' : 'border-gray-300'
+  }`;
+
+const FieldError = ({ id, message }: { id: string; message?: string }) =>
+  message ? (
+    <p className="mt-1 text-sm text-red-700" id={id}>
+      {message}
+    </p>
+  ) : null;
+
+const CourseEditForm = ({ course, onCancel }: { course: Course; onCancel: () => void }) => {
+  const {
+    register,
+    formState: { errors },
+  } = useForm<CourseForm>({
+    defaultValues: {
+      title: course.title,
+      term: course.term,
+      number: course.number,
+      meets: course.meets,
+    },
+    mode: 'onChange',
+    resolver: courseFormResolver,
+  });
+
+  return (
+    <form className="space-y-4" noValidate onSubmit={(event) => event.preventDefault()}>
+      <div>
+        <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="course-term">
+          Term
+        </label>
+        <select
+          aria-describedby="course-term-error"
+          aria-invalid={Boolean(errors.term)}
+          className={fieldClass(Boolean(errors.term))}
+          id="course-term"
+          {...register('term')}
+        >
+          {formTerms.map((term) => (
+            <option key={term} value={term}>
+              {term}
+            </option>
+          ))}
+        </select>
+        <FieldError id="course-term-error" message={errors.term?.message} />
+      </div>
+
+      <div>
+        <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="course-number">
+          Course number
+        </label>
+        <input
+          aria-describedby="course-number-error"
+          aria-invalid={Boolean(errors.number)}
+          className={fieldClass(Boolean(errors.number))}
+          id="course-number"
+          type="text"
+          {...register('number')}
+        />
+        <FieldError id="course-number-error" message={errors.number?.message} />
+      </div>
+
+      <div>
+        <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="course-title">
+          Course title
+        </label>
+        <input
+          aria-describedby="course-title-error"
+          aria-invalid={Boolean(errors.title)}
+          className={fieldClass(Boolean(errors.title))}
+          id="course-title"
+          type="text"
+          {...register('title')}
+        />
+        <FieldError id="course-title-error" message={errors.title?.message} />
+      </div>
+
+      <div>
+        <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="course-meets">
+          Meeting times
+        </label>
+        <input
+          aria-describedby="course-meets-error"
+          aria-invalid={Boolean(errors.meets)}
+          className={fieldClass(Boolean(errors.meets))}
+          id="course-meets"
+          type="text"
+          {...register('meets')}
+        />
+        <FieldError id="course-meets-error" message={errors.meets?.message} />
+      </div>
+
+      <button
+        className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
+        onClick={onCancel}
+        type="button"
+      >
+        Cancel
+      </button>
+    </form>
+  );
+};
+
 const CourseEditPage = ({ course, onCancel }: CourseEditPageProps) => {
   if (!course) {
     return (
@@ -320,51 +428,10 @@ const CourseEditPage = ({ course, onCancel }: CourseEditPageProps) => {
 
   return (
     <section className="max-w-lg font-sans" aria-labelledby="edit-course-title">
-      <h2
-        className="mb-4 text-2xl font-semibold text-gray-900"
-        id="edit-course-title"
-      >
+      <h2 className="mb-4 text-2xl font-semibold text-gray-900" id="edit-course-title">
         Edit {course.term} CS {course.number}
       </h2>
-      <form className="space-y-4" onSubmit={(event) => event.preventDefault()}>
-        <div>
-          <label
-            className="mb-1 block text-sm font-medium text-gray-700"
-            htmlFor="course-title"
-          >
-            Course title
-          </label>
-          <input
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-gray-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
-            defaultValue={course.title}
-            id="course-title"
-            name="title"
-            type="text"
-          />
-        </div>
-        <div>
-          <label
-            className="mb-1 block text-sm font-medium text-gray-700"
-            htmlFor="course-meets"
-          >
-            Meeting times
-          </label>
-          <input
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-gray-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
-            defaultValue={course.meets}
-            id="course-meets"
-            name="meets"
-            type="text"
-          />
-        </div>
-        <button
-          className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
-          onClick={onCancel}
-          type="button"
-        >
-          Cancel
-        </button>
-      </form>
+      <CourseEditForm course={course} onCancel={onCancel} />
     </section>
   );
 };
