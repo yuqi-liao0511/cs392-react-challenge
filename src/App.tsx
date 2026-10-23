@@ -1,10 +1,11 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import {
-  fetchCourseSchedule,
+  SCHEDULE_PATH,
+  safeParseSchedule,
   type Course,
-  type CourseSchedule,
   type CourseTerm,
 } from './services/scheduleService';
+import { useDataQuery } from './hooks/useDataQuery';
 import { useForm } from 'react-hook-form';
 import { hasConflict } from './utilities/timeConflicts';
 import { CourseForm, courseFormResolver } from './types/courseForm';
@@ -439,10 +440,10 @@ const CourseEditPage = ({ course, onCancel }: CourseEditPageProps) => {
 // ---------- App ----------
 
 const App = () => {
-  const [schedule, setSchedule] = useState<CourseSchedule | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [retryCount, setRetryCount] = useState(0);
+  const [json, isLoading, dbError] = useDataQuery(SCHEDULE_PATH);
+  const parsed = isLoading || dbError ? {} : safeParseSchedule(json);
+  const schedule = parsed.schedule;
+  const error = dbError ?? parsed.error;
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
 
   useEffect(() => {
@@ -455,39 +456,6 @@ const App = () => {
   const navigate = (path: string) => {
     window.history.pushState({}, '', path);
     setCurrentPath(path);
-  };
-
-  useEffect(() => {
-    const controller = new AbortController();
-
-    const loadSchedule = async () => {
-      try {
-        const fetchedSchedule = await fetchCourseSchedule(controller.signal);
-        setSchedule(fetchedSchedule);
-      } catch (cause) {
-        if (!controller.signal.aborted) {
-          setError(
-            cause instanceof Error
-              ? cause.message
-              : 'Unable to load the course schedule. Please try again.',
-          );
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    void loadSchedule();
-
-    return () => controller.abort();
-  }, [retryCount]);
-
-  const handleRetry = () => {
-    setError(null);
-    setIsLoading(true);
-    setRetryCount((count) => count + 1);
   };
 
   const editMatch = currentPath.match(/^\/courses\/([^/]+)\/edit\/?$/);
@@ -518,14 +486,7 @@ const App = () => {
 
       {error && (
         <div className="font-sans text-red-700">
-          <p role="alert">Unable to load the course schedule: {error}</p>
-          <button
-            type="button"
-            onClick={handleRetry}
-            className="mt-3 rounded-md border border-red-700 px-4 py-2 hover:bg-red-50"
-          >
-            Retry
-          </button>
+          <p role="alert">Unable to load the course schedule: {error.message}</p>
         </div>
       )}
 

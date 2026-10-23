@@ -1,7 +1,4 @@
-const SCHEDULE_ENDPOINT =
-  'https://courses.cs.northwestern.edu/394/guides/data/cs-courses-firestore.php';
-
-const SCHEDULE_ID = 'CS-2018-2019';
+export const SCHEDULE_PATH = 'schedules/CS-2018-2019';
 
 const TERM_ORDER = ['Fall', 'Winter', 'Spring'] as const;
 
@@ -27,21 +24,15 @@ const isCourseTerm = (value: unknown): value is CourseTerm =>
   TERM_ORDER.some((term) => term === value);
 
 const parseSchedule = (payload: unknown): CourseSchedule => {
-  if (!isRecord(payload) || !isRecord(payload.schedules)) {
-    throw new Error('The course schedule response has an unexpected format.');
-  }
-
-  const schedule = payload.schedules[SCHEDULE_ID];
-
   if (
-    !isRecord(schedule) ||
-    typeof schedule.title !== 'string' ||
-    !isRecord(schedule.courses)
+    !isRecord(payload) ||
+    typeof payload.title !== 'string' ||
+    !isRecord(payload.courses)
   ) {
     throw new Error('The course schedule response has an unexpected format.');
   }
 
-  const courseData = schedule.courses;
+  const courseData = payload.courses;
 
   const courses = Object.keys(courseData).map((id) => {
     const value = courseData[id];
@@ -73,41 +64,23 @@ const parseSchedule = (payload: unknown): CourseSchedule => {
   );
 
   return {
-    title: schedule.title,
+    title: payload.title,
     courses,
   };
 };
 
-export const fetchCourseSchedule = async (
-  signal: AbortSignal,
-): Promise<CourseSchedule> => {
-  let response: Response;
+export const safeParseSchedule = (
+  payload: unknown,
+): { schedule?: CourseSchedule; error?: Error } => {
+  if (payload === null) {
+    return { error: new Error('The course schedule was not found in Firebase.') };
+  }
 
   try {
-    response = await fetch(SCHEDULE_ENDPOINT, { signal });
+    return { schedule: parseSchedule(payload) };
   } catch (cause) {
-    if (signal.aborted) {
-      throw cause;
-    }
-
-    throw new Error(
-      'Could not connect to the course schedule service. Check your connection and try again.',
-    );
+    return {
+      error: cause instanceof Error ? cause : new Error('The course schedule is invalid.'),
+    };
   }
-
-  if (!response.ok) {
-    throw new Error(
-      `The course schedule request failed (HTTP ${response.status}).`,
-    );
-  }
-
-  let payload: unknown;
-
-  try {
-    payload = await response.json();
-  } catch {
-    throw new Error('The course schedule service returned invalid JSON.');
-  }
-
-  return parseSchedule(payload);
 };

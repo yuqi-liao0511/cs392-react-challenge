@@ -40,6 +40,17 @@ Then in VS Code, tell CoPilot to "Write code to implement the specification in d
 | npm test         | Starts a Jest-like test loop                        |
 | npm run coverage | Runs the tests, displays code coverage results      |
 
+## Course schedule data
+
+The app reads the schedule from Firebase Realtime Database at
+`/schedules/CS-2018-2019`. The import source is `database/cs-courses.json`. To
+import or replace that schedule, run:
+
+```
+firebase database:set /schedules/CS-2018-2019 database/cs-courses.json --project cs392-react-challenge-692dd
+```
+
+This replaces data at that schedule path.
 
 ## Folder Structure
 
