@@ -1,3 +1,6 @@
+import { ref, update } from 'firebase/database';
+import { database } from './firebase';
+
 export const SCHEDULE_PATH = 'schedules/CS-2018-2019';
 
 const TERM_ORDER = ['Fall', 'Winter', 'Spring'] as const;
@@ -16,6 +19,13 @@ export interface CourseSchedule {
   title: string;
   courses: Course[];
 }
+
+export const updateCourse = async (
+  courseId: string,
+  changes: Partial<Omit<Course, 'id'>>,
+): Promise<void> => {
+  await update(ref(database, `${SCHEDULE_PATH}/courses/${courseId}`), changes);
+};
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);

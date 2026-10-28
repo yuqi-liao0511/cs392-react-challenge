@@ -4,6 +4,7 @@ import {
   safeParseSchedule,
   type Course,
   type CourseTerm,
+  updateCourse,
 } from './services/scheduleService';
 import { useDataQuery } from './hooks/useDataQuery';
 import { useForm } from 'react-hook-form';
@@ -246,11 +247,12 @@ const CoursePlan = ({ selected }: { selected: Course[] }) =>
 
 interface TermPageProps {
   courses: Course[];
+  selection: CourseTerm;
+  setSelection: (term: CourseTerm) => void;
   onEdit: (courseId: string) => void;
 }
 
-const TermPage = ({ courses, onEdit }: TermPageProps) => {
-  const [selection, setSelection] = useState<CourseTerm>('Fall');
+const TermPage = ({ courses, selection, setSelection, onEdit }: TermPageProps) => {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [isPlanOpen, setIsPlanOpen] = useState(false);
 
@@ -302,6 +304,7 @@ const TermPage = ({ courses, onEdit }: TermPageProps) => {
 interface CourseEditPageProps {
   course: Course | undefined;
   onCancel: () => void;
+  onSave: (changes: Partial<Omit<Course, 'id'>>) => Promise<void>;
 }
 
 const fieldClass = (hasError: boolean) =>
@@ -316,10 +319,20 @@ const FieldError = ({ id, message }: { id: string; message?: string }) =>
     </p>
   ) : null;
 
-const CourseEditForm = ({ course, onCancel }: { course: Course; onCancel: () => void }) => {
+const CourseEditForm = ({
+  course,
+  onCancel,
+  onSave,
+}: {
+  course: Course;
+  onCancel: () => void;
+  onSave: (changes: Partial<Omit<Course, 'id'>>) => Promise<void>;
+}) => {
+  const [saveError, setSaveError] = useState<string>();
   const {
     register,
-    formState: { errors },
+    handleSubmit,
+    formState: { dirtyFields, errors, isDirty, isSubmitting, isValid },
   } = useForm<CourseForm>({
     defaultValues: {
       title: course.title,
@@ -331,8 +344,41 @@ const CourseEditForm = ({ course, onCancel }: { course: Course; onCancel: () => 
     resolver: courseFormResolver,
   });
 
+  const submitChanges = async (values: CourseForm) => {
+    const changes: Partial<Omit<Course, 'id'>> = {};
+
+    if (dirtyFields.term) changes.term = values.term;
+    if (dirtyFields.number) changes.number = values.number;
+    if (dirtyFields.title) changes.title = values.title;
+    if (dirtyFields.meets) changes.meets = values.meets;
+
+    if (Object.keys(changes).length === 0) {
+      return;
+    }
+
+    setSaveError(undefined);
+
+    try {
+      await onSave(changes);
+    } catch (cause) {
+      setSaveError(
+        cause instanceof Error ? cause.message : 'Unable to save course changes.',
+      );
+    }
+  };
+
   return (
-    <form className="space-y-4" noValidate onSubmit={(event) => event.preventDefault()}>
+    <form
+      className="space-y-4"
+      noValidate
+      onChange={() => setSaveError(undefined)}
+      onSubmit={handleSubmit(submitChanges)}
+    >
+      {saveError && (
+        <p className="text-sm text-red-700" role="alert">
+          Unable to save course changes: {saveError}
+        </p>
+      )}
       <div>
         <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="course-term">
           Term
@@ -399,6 +445,13 @@ const CourseEditForm = ({ course, onCancel }: { course: Course; onCancel: () => 
       </div>
 
       <button
+        className="rounded-md bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+        disabled={!isDirty || !isValid || Object.keys(errors).length > 0 || isSubmitting}
+        type="submit"
+      >
+        {isSubmitting ? 'Saving...' : 'Submit'}
+      </button>
+      <button
         className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
         onClick={onCancel}
         type="button"
@@ -409,7 +462,7 @@ const CourseEditForm = ({ course, onCancel }: { course: Course; onCancel: () => 
   );
 };
 
-const CourseEditPage = ({ course, onCancel }: CourseEditPageProps) => {
+const CourseEditPage = ({ course, onCancel, onSave }: CourseEditPageProps) => {
   if (!course) {
     return (
       <section className="font-sans" aria-labelledby="edit-course-title">
@@ -432,7 +485,7 @@ const CourseEditPage = ({ course, onCancel }: CourseEditPageProps) => {
       <h2 className="mb-4 text-2xl font-semibold text-gray-900" id="edit-course-title">
         Edit {course.term} CS {course.number}
       </h2>
-      <CourseEditForm course={course} onCancel={onCancel} />
+      <CourseEditForm course={course} onCancel={onCancel} onSave={onSave} />
     </section>
   );
 };
@@ -445,6 +498,7 @@ const App = () => {
   const schedule = parsed.schedule;
   const error = dbError ?? parsed.error;
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
+  const [selection, setSelection] = useState<CourseTerm>('Fall');
 
   useEffect(() => {
     const handlePopState = () => setCurrentPath(window.location.pathname);
@@ -495,6 +549,8 @@ const App = () => {
           <div hidden={isEditingCourse}>
             <TermPage
               courses={schedule.courses}
+              selection={selection}
+              setSelection={setSelection}
               onEdit={(courseId) =>
                 navigate(`/courses/${encodeURIComponent(courseId)}/edit`)
               }
@@ -505,6 +561,15 @@ const App = () => {
               key={editCourse?.id ?? 'not-found'}
               course={editCourse}
               onCancel={() => navigate('/')}
+              onSave={async (changes) => {
+                if (!editCourseId || !editCourse) {
+                  throw new Error('The course could not be found.');
+                }
+
+                await updateCourse(editCourseId, changes);
+                setSelection(changes.term ?? editCourse.term);
+                navigate('/');
+              }}
             />
           )}
         </>

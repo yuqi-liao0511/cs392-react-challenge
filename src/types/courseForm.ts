@@ -20,8 +20,8 @@ const isLegalMeeting = (meets: string): boolean =>
 
 export const CourseForm = z.object({
   title: z.string().trim().min(2, 'must be at least 2 characters'),
-  term: z.enum(['Fall', 'Winter', 'Spring', 'Summer'], {
-    error: 'must be Fall, Winter, Spring, or Summer',
+  term: z.enum(['Fall', 'Winter', 'Spring'], {
+    error: 'must be Fall, Winter, or Spring',
   }),
   number: z
     .string()
