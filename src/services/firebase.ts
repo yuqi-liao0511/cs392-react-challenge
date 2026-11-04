@@ -1,7 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getDatabase } from 'firebase/database';
 
-const firebaseApp = initializeApp({
+export const firebaseApp = initializeApp({
   apiKey: 'AIzaSyDfnPNk8BI0lP2MuCw7_Kzu4srh3Uuvo7I',
   authDomain: 'cs392-react-challenge-692dd.firebaseapp.com',
   databaseURL: 'https://cs392-react-challenge-692dd-default-rtdb.firebaseio.com',

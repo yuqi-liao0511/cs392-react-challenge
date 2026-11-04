@@ -1,0 +1,14 @@
+{
+  "rules": {
+    ".read": true,
+    "schedules": {
+      "CS-2018-2019": {
+        "courses": {
+          "$courseId": {
+            ".write": "auth != null"
+          }
+        }
+      }
+    }
+  }
+}

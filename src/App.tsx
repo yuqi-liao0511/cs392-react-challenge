@@ -10,9 +10,76 @@ import { useDataQuery } from './hooks/useDataQuery';
 import { useForm } from 'react-hook-form';
 import { hasConflict } from './utilities/timeConflicts';
 import { CourseForm, courseFormResolver } from './types/courseForm';
+import { signInWithGoogle, signOutUser } from './services/authService';
+import { useAuth } from './hooks/useAuth';
+import type { User } from 'firebase/auth';
 
 const terms: CourseTerm[] = ['Fall', 'Winter', 'Spring'];
 const formTerms = CourseForm.shape.term.options;
+
+// Closing the Google popup is not an error worth showing.
+const IGNORED_AUTH_ERRORS = ['auth/popup-closed-by-user', 'auth/cancelled-popup-request'];
+
+const authErrorMessage = (cause: unknown, fallback: string): string | undefined => {
+  const code = (cause as { code?: unknown } | null)?.code;
+  if (typeof code === 'string' && IGNORED_AUTH_ERRORS.some((ignored) => ignored === code)) {
+    return undefined;
+  }
+  return fallback;
+};
+
+const AuthBanner = ({ user, isLoading }: { user: User | null; isLoading: boolean }) => {
+  const [authError, setAuthError] = useState<string>();
+
+  const handleSignIn = async () => {
+    setAuthError(undefined);
+
+    try {
+      await signInWithGoogle();
+    } catch (cause) {
+      setAuthError(authErrorMessage(cause, 'Unable to sign in with Google. Please try again.'));
+    }
+  };
+
+  const handleSignOut = async () => {
+    setAuthError(undefined);
+
+    try {
+      await signOutUser();
+    } catch (cause) {
+      setAuthError(authErrorMessage(cause, 'Unable to sign out. Please try again.'));
+    }
+  };
+
+  return (
+    <header className="mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 pb-4 font-sans">
+      {user ? (
+        <p className="text-sm text-gray-800">
+          Signed in as{' '}
+          <span className="font-medium">
+            {user.displayName || user.email || 'User'}
+          </span>
+        </p>
+      ) : (
+        <span />
+      )}
+      {!isLoading && (
+        <button
+          className="rounded-md bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
+          onClick={user ? handleSignOut : handleSignIn}
+          type="button"
+        >
+          {user ? 'Sign out' : 'Sign in'}
+        </button>
+      )}
+      {authError && (
+        <p className="w-full text-sm text-red-700" role="alert">
+          {authError}
+        </p>
+      )}
+    </header>
+  );
+};
 
 // ---------- Modal ----------
 
@@ -113,6 +180,7 @@ const TermSelector = ({ selection, setSelection }: TermSelectorProps) => (
 interface CourseListProps {
   courses: Course[];
   selection: CourseTerm;
+  isSignedIn: boolean;
   selectedIds: Set<string>;
   selectedCourses: Course[];
   toggleSelected: (courseId: string) => void;
@@ -122,6 +190,7 @@ interface CourseListProps {
 const CourseList = ({
   courses,
   selection,
+  isSignedIn,
   selectedIds,
   selectedCourses,
   toggleSelected,
@@ -195,26 +264,28 @@ const CourseList = ({
                 {course.meets}
               </span>
             </button>
-            <a
-              className="font-sans text-sm font-medium text-blue-700 underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
-              href={`/courses/${encodeURIComponent(course.id)}/edit`}
-              onClick={(event) => {
-                if (
-                  event.button !== 0 ||
-                  event.metaKey ||
-                  event.ctrlKey ||
-                  event.shiftKey ||
-                  event.altKey
-                ) {
-                  return;
-                }
+            {isSignedIn && (
+              <a
+                className="font-sans text-sm font-medium text-blue-700 underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
+                href={`/courses/${encodeURIComponent(course.id)}/edit`}
+                onClick={(event) => {
+                  if (
+                    event.button !== 0 ||
+                    event.metaKey ||
+                    event.ctrlKey ||
+                    event.shiftKey ||
+                    event.altKey
+                  ) {
+                    return;
+                  }
 
-                event.preventDefault();
-                onEdit(course.id);
-              }}
-            >
-              Edit
-            </a>
+                  event.preventDefault();
+                  onEdit(course.id);
+                }}
+              >
+                Edit
+              </a>
+            )}
           </li>
         );
       })}
@@ -249,10 +320,17 @@ interface TermPageProps {
   courses: Course[];
   selection: CourseTerm;
   setSelection: (term: CourseTerm) => void;
+  isSignedIn: boolean;
   onEdit: (courseId: string) => void;
 }
 
-const TermPage = ({ courses, selection, setSelection, onEdit }: TermPageProps) => {
+const TermPage = ({
+  courses,
+  selection,
+  setSelection,
+  isSignedIn,
+  onEdit,
+}: TermPageProps) => {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [isPlanOpen, setIsPlanOpen] = useState(false);
 
@@ -288,6 +366,7 @@ const TermPage = ({ courses, selection, setSelection, onEdit }: TermPageProps) =
       <CourseList
         courses={courses}
         selection={selection}
+        isSignedIn={isSignedIn}
         selectedIds={selectedIds}
         selectedCourses={selectedCourses}
         toggleSelected={toggleSelected}
@@ -493,6 +572,7 @@ const CourseEditPage = ({ course, onCancel, onSave }: CourseEditPageProps) => {
 // ---------- App ----------
 
 const App = () => {
+  const { user, isInitialLoading: isAuthLoading } = useAuth();
   const [json, isLoading, dbError] = useDataQuery(SCHEDULE_PATH);
   const parsed = isLoading || dbError ? {} : safeParseSchedule(json);
   const schedule = parsed.schedule;
@@ -529,52 +609,77 @@ const App = () => {
   );
 
   return (
-    <main>
-      <h1>{schedule?.title ?? 'Computer Science Courses'}</h1>
+    <>
+      <AuthBanner user={user} isLoading={isAuthLoading} />
+      <main>
+        <h1>{schedule?.title ?? 'Computer Science Courses'}</h1>
 
-      {isLoading && (
-        <p role="status" className="font-sans text-gray-700">
-          Loading course schedule...
-        </p>
-      )}
+        {isLoading && (
+          <p role="status" className="font-sans text-gray-700">
+            Loading course schedule...
+          </p>
+        )}
 
-      {error && (
-        <div className="font-sans text-red-700">
-          <p role="alert">Unable to load the course schedule: {error.message}</p>
-        </div>
-      )}
-
-      {schedule && !isLoading && !error && (
-        <>
-          <div hidden={isEditingCourse}>
-            <TermPage
-              courses={schedule.courses}
-              selection={selection}
-              setSelection={setSelection}
-              onEdit={(courseId) =>
-                navigate(`/courses/${encodeURIComponent(courseId)}/edit`)
-              }
-            />
+        {error && (
+          <div className="font-sans text-red-700">
+            <p role="alert">Unable to load the course schedule: {error.message}</p>
           </div>
-          {isEditingCourse && (
-            <CourseEditPage
-              key={editCourse?.id ?? 'not-found'}
-              course={editCourse}
-              onCancel={() => navigate('/')}
-              onSave={async (changes) => {
-                if (!editCourseId || !editCourse) {
-                  throw new Error('The course could not be found.');
-                }
+        )}
 
-                await updateCourse(editCourseId, changes);
-                setSelection(changes.term ?? editCourse.term);
-                navigate('/');
-              }}
-            />
-          )}
-        </>
-      )}
-    </main>
+        {isEditingCourse && isAuthLoading && (
+          <p role="status" className="font-sans text-gray-700">
+            Checking sign-in...
+          </p>
+        )}
+
+        {isEditingCourse && !isAuthLoading && !user && (
+          <section
+            className="font-sans"
+            aria-labelledby="sign-in-required-title"
+          >
+            <h2
+              className="mb-2 text-2xl font-semibold text-gray-900"
+              id="sign-in-required-title"
+            >
+              Sign in required
+            </h2>
+            <p className="text-gray-700">Please sign in to edit courses.</p>
+          </section>
+        )}
+
+        {schedule && !isLoading && !error && (
+          <>
+            <div hidden={isEditingCourse}>
+              <TermPage
+                courses={schedule.courses}
+                selection={selection}
+                setSelection={setSelection}
+                isSignedIn={user !== null}
+                onEdit={(courseId) =>
+                  navigate(`/courses/${encodeURIComponent(courseId)}/edit`)
+                }
+              />
+            </div>
+            {isEditingCourse && user && (
+              <CourseEditPage
+                key={editCourse?.id ?? 'not-found'}
+                course={editCourse}
+                onCancel={() => navigate('/')}
+                onSave={async (changes) => {
+                  if (!editCourseId || !editCourse) {
+                    throw new Error('The course could not be found.');
+                  }
+
+                  await updateCourse(editCourseId, changes);
+                  setSelection(changes.term ?? editCourse.term);
+                  navigate('/');
+                }}
+              />
+            )}
+          </>
+        )}
+      </main>
+    </>
   );
 };
 
