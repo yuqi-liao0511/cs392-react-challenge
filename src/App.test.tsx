@@ -9,12 +9,14 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import { useAuth } from './hooks/useAuth';
+import { useAdminStatus } from './hooks/useAdminStatus';
 import { useDataQuery } from './hooks/useDataQuery';
 import { signInWithGoogle, signOutUser } from './services/authService';
 import type { CourseSchedule } from './services/scheduleService';
 import type { User } from 'firebase/auth';
 
 vi.mock('./hooks/useAuth', () => ({ useAuth: vi.fn() }));
+vi.mock('./hooks/useAdminStatus', () => ({ useAdminStatus: vi.fn() }));
 vi.mock('./hooks/useDataQuery', () => ({ useDataQuery: vi.fn() }));
 vi.mock('./services/authService', () => ({
   signInWithGoogle: vi.fn(),
@@ -63,10 +65,13 @@ const signedInUser = {
 const signedOut = { user: null, isAuthenticated: false, isInitialLoading: false };
 const signedIn = { user: signedInUser, isAuthenticated: true, isInitialLoading: false };
 const checking = { user: null, isAuthenticated: false, isInitialLoading: true };
+const adminStatus = { isAdmin: false, isLoading: false, error: undefined };
+const admin = { isAdmin: true, isLoading: false, error: undefined };
 
 describe('course schedule app', () => {
   beforeEach(() => {
     vi.mocked(useAuth).mockReturnValue(signedOut);
+    vi.mocked(useAdminStatus).mockReturnValue(adminStatus);
     vi.mocked(useDataQuery).mockReturnValue([schedule, false, undefined]);
   });
 
@@ -98,6 +103,7 @@ describe('course schedule app', () => {
 
   it('shows the signed-in name, sign-out control, and edit links', async () => {
     vi.mocked(useAuth).mockReturnValue(signedIn);
+    vi.mocked(useAdminStatus).mockReturnValue(admin);
     render(<App />);
 
     expect(screen.getByText('Ada Lovelace')).toBeInTheDocument();
@@ -105,6 +111,25 @@ describe('course schedule app', () => {
 
     await waitFor(() => expect(signOutUser).toHaveBeenCalledOnce());
     expect(screen.getAllByRole('link', { name: 'Edit' })).toHaveLength(3);
+  });
+
+  it('hides edit links from signed-in non-admins', () => {
+    vi.mocked(useAuth).mockReturnValue(signedIn);
+    render(<App />);
+
+    expect(screen.queryByRole('link', { name: 'Edit' })).not.toBeInTheDocument();
+  });
+
+  it('denies direct edit URLs to signed-in non-admins', () => {
+    vi.mocked(useAuth).mockReturnValue(signedIn);
+    window.history.replaceState({}, '', '/courses/cs213/edit');
+    render(<App />);
+
+    expect(
+      screen.getByText('Only administrators can edit courses'),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText('Course title')).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Edit' })).not.toBeInTheDocument();
   });
 
   it('waits for the sign-in check before showing sign-in controls or messages', () => {
@@ -154,6 +179,7 @@ describe('course schedule app', () => {
 
   it('keeps edit form validation enabled for signed-in users', async () => {
     vi.mocked(useAuth).mockReturnValue(signedIn);
+    vi.mocked(useAdminStatus).mockReturnValue(admin);
     window.history.replaceState({}, '', '/courses/cs213/edit');
     render(<App />);
 

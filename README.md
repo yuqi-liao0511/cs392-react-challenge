@@ -53,9 +53,12 @@ firebase database:set /schedules/CS-2018-2019 database/cs-courses.json --project
 This replaces data at that schedule path.
 
 The Realtime Database rules in `database.rules.json` allow public reads and
-require authentication for course writes. Deploy them with `firebase deploy
---only database`. Enable Google as a sign-in provider in Firebase Authentication
-for the sign-in button to work.
+allow course writes only for signed-in administrators. To add an administrator,
+copy their UID from Firebase Authentication → Users and manually set
+`/admins/{uid}` to `true` in the Realtime Database console. The app cannot
+change the `/admins` list. Deploy the rules with `firebase deploy --only
+database`. Enable Google as a sign-in provider in Firebase Authentication for
+the sign-in button to work.
 
 ## Folder Structure
 

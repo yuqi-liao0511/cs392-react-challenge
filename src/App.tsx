@@ -12,6 +12,7 @@ import { hasConflict } from './utilities/timeConflicts';
 import { CourseForm, courseFormResolver } from './types/courseForm';
 import { signInWithGoogle, signOutUser } from './services/authService';
 import { useAuth } from './hooks/useAuth';
+import { useAdminStatus } from './hooks/useAdminStatus';
 import type { User } from 'firebase/auth';
 
 const terms: CourseTerm[] = ['Fall', 'Winter', 'Spring'];
@@ -180,7 +181,7 @@ const TermSelector = ({ selection, setSelection }: TermSelectorProps) => (
 interface CourseListProps {
   courses: Course[];
   selection: CourseTerm;
-  isSignedIn: boolean;
+  isAdmin: boolean;
   selectedIds: Set<string>;
   selectedCourses: Course[];
   toggleSelected: (courseId: string) => void;
@@ -190,7 +191,7 @@ interface CourseListProps {
 const CourseList = ({
   courses,
   selection,
-  isSignedIn,
+  isAdmin,
   selectedIds,
   selectedCourses,
   toggleSelected,
@@ -264,7 +265,7 @@ const CourseList = ({
                 {course.meets}
               </span>
             </button>
-            {isSignedIn && (
+            {isAdmin && (
               <a
                 className="font-sans text-sm font-medium text-blue-700 underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
                 href={`/courses/${encodeURIComponent(course.id)}/edit`}
@@ -320,7 +321,7 @@ interface TermPageProps {
   courses: Course[];
   selection: CourseTerm;
   setSelection: (term: CourseTerm) => void;
-  isSignedIn: boolean;
+  isAdmin: boolean;
   onEdit: (courseId: string) => void;
 }
 
@@ -328,7 +329,7 @@ const TermPage = ({
   courses,
   selection,
   setSelection,
-  isSignedIn,
+  isAdmin,
   onEdit,
 }: TermPageProps) => {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
@@ -366,7 +367,7 @@ const TermPage = ({
       <CourseList
         courses={courses}
         selection={selection}
-        isSignedIn={isSignedIn}
+        isAdmin={isAdmin}
         selectedIds={selectedIds}
         selectedCourses={selectedCourses}
         toggleSelected={toggleSelected}
@@ -573,6 +574,11 @@ const CourseEditPage = ({ course, onCancel, onSave }: CourseEditPageProps) => {
 
 const App = () => {
   const { user, isInitialLoading: isAuthLoading } = useAuth();
+  const {
+    isAdmin,
+    isLoading: isAdminLoading,
+    error: adminError,
+  } = useAdminStatus(user?.uid ?? null);
   const [json, isLoading, dbError] = useDataQuery(SCHEDULE_PATH);
   const parsed = isLoading || dbError ? {} : safeParseSchedule(json);
   const schedule = parsed.schedule;
@@ -647,6 +653,32 @@ const App = () => {
           </section>
         )}
 
+        {isEditingCourse && user && isAdminLoading && (
+          <p role="status" className="font-sans text-gray-700">
+            Checking administrator access...
+          </p>
+        )}
+
+        {isEditingCourse && user && !isAdminLoading && adminError && (
+          <p role="alert" className="font-sans text-red-700">
+            Unable to verify administrator access: {adminError.message}
+          </p>
+        )}
+
+        {isEditingCourse && user && !isAdminLoading && !adminError && !isAdmin && (
+          <section className="font-sans" aria-labelledby="admin-required-title">
+            <h2
+              className="mb-2 text-2xl font-semibold text-gray-900"
+              id="admin-required-title"
+            >
+              Administrator access required
+            </h2>
+            <p className="text-gray-700">
+              Only administrators can edit courses
+            </p>
+          </section>
+        )}
+
         {schedule && !isLoading && !error && (
           <>
             <div hidden={isEditingCourse}>
@@ -654,13 +686,13 @@ const App = () => {
                 courses={schedule.courses}
                 selection={selection}
                 setSelection={setSelection}
-                isSignedIn={user !== null}
+                isAdmin={isAdmin}
                 onEdit={(courseId) =>
                   navigate(`/courses/${encodeURIComponent(courseId)}/edit`)
                 }
               />
             </div>
-            {isEditingCourse && user && (
+            {isEditingCourse && user && isAdmin && !isAdminLoading && !adminError && (
               <CourseEditPage
                 key={editCourse?.id ?? 'not-found'}
                 course={editCourse}
