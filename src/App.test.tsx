@@ -177,6 +177,62 @@ describe('course schedule app', () => {
     );
   });
 
+  it('filters the selected term by normalized title or course number and can clear search', () => {
+    render(<App />);
+
+    const search = screen.getByRole('searchbox', { name: 'Search courses' });
+
+    fireEvent.change(search, { target: { value: '  DATA    STRUCTURES ' } });
+    expect(screen.getByRole('button', { name: /Fall CS 214/ })).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /Fall CS 213/ }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.change(search, { target: { value: '213' } });
+    expect(screen.getByRole('button', { name: /Fall CS 213/ })).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /Fall CS 214/ }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.change(search, { target: { value: 'xyz' } });
+    expect(screen.getByText('No Fall courses match “xyz”.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear course search' }));
+    expect(search).toHaveValue('');
+    expect(screen.getAllByRole('button', { name: /Fall CS/ })).toHaveLength(3);
+  });
+
+  it('keeps selected courses in the plan while they are hidden by search', () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Fall CS 213/ }));
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search courses' }), {
+      target: { value: 'data' },
+    });
+
+    expect(screen.queryByRole('button', { name: /Fall CS 213/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Course plan' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent(
+      'Fall CS 213: Introduction to Computing',
+    );
+  });
+
+  it('shows admin Edit links only for courses that match the search', () => {
+    vi.mocked(useAuth).mockReturnValue(signedIn);
+    vi.mocked(useAdminStatus).mockReturnValue(admin);
+    render(<App />);
+
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search courses' }), {
+      target: { value: 'data' },
+    });
+
+    expect(screen.getAllByRole('link', { name: 'Edit' })).toHaveLength(1);
+    expect(screen.getByRole('link', { name: 'Edit' })).toHaveAttribute(
+      'href',
+      '/courses/cs214/edit',
+    );
+  });
+
   it('keeps edit form validation enabled for signed-in users', async () => {
     vi.mocked(useAuth).mockReturnValue(signedIn);
     vi.mocked(useAdminStatus).mockReturnValue(admin);

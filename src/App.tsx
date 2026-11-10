@@ -181,6 +181,7 @@ const TermSelector = ({ selection, setSelection }: TermSelectorProps) => (
 interface CourseListProps {
   courses: Course[];
   selection: CourseTerm;
+  searchQuery: string;
   isAdmin: boolean;
   selectedIds: Set<string>;
   selectedCourses: Course[];
@@ -191,18 +192,30 @@ interface CourseListProps {
 const CourseList = ({
   courses,
   selection,
+  searchQuery,
   isAdmin,
   selectedIds,
   selectedCourses,
   toggleSelected,
   onEdit,
 }: CourseListProps) => {
-  const termCourses = courses.filter((course) => course.term === selection);
+  const normalizedSearch = searchQuery.trim().replace(/\s+/g, ' ').toLowerCase();
+  const termCourses = courses.filter((course) => {
+    if (course.term !== selection) return false;
+    if (!normalizedSearch) return true;
+
+    return (
+      course.title.toLowerCase().replace(/\s+/g, ' ').includes(normalizedSearch) ||
+      course.number.toLowerCase().replace(/\s+/g, ' ').includes(normalizedSearch)
+    );
+  });
 
   if (termCourses.length === 0) {
     return (
       <p className="font-sans text-gray-700">
-        No {selection} courses are currently available.
+        {normalizedSearch
+          ? `No ${selection} courses match “${normalizedSearch}”.`
+          : `No ${selection} courses are currently available.`}
       </p>
     );
   }
@@ -334,6 +347,7 @@ const TermPage = ({
 }: TermPageProps) => {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [isPlanOpen, setIsPlanOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const toggleSelected = (courseId: string) => {
     setSelectedIds((current) => {
@@ -354,7 +368,33 @@ const TermPage = ({
   return (
     <>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 font-sans">
-        <TermSelector selection={selection} setSelection={setSelection} />
+        <div className="flex flex-wrap items-center gap-3">
+          <TermSelector selection={selection} setSelection={setSelection} />
+          <div className="flex items-center gap-2">
+            <label className="sr-only" htmlFor="course-search">
+              Search courses
+            </label>
+            <input
+              autoComplete="off"
+              className="w-56 rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
+              id="course-search"
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search courses"
+              type="search"
+              value={searchQuery}
+            />
+            {searchQuery && (
+              <button
+                aria-label="Clear course search"
+                className="rounded-md px-2 py-1 text-xl leading-none text-gray-600 hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
+                onClick={() => setSearchQuery('')}
+                type="button"
+              >
+                ×
+              </button>
+            )}
+          </div>
+        </div>
         <button
           className="rounded-md bg-gray-800 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-gray-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-800"
           onClick={() => setIsPlanOpen(true)}
@@ -367,6 +407,7 @@ const TermPage = ({
       <CourseList
         courses={courses}
         selection={selection}
+        searchQuery={searchQuery}
         isAdmin={isAdmin}
         selectedIds={selectedIds}
         selectedCourses={selectedCourses}
