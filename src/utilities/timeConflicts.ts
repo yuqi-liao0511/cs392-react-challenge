@@ -38,5 +38,8 @@ const coursesConflict = (a: Course, b: Course): boolean => {
   return meetingA !== null && meetingB !== null && meetingsConflict(meetingA, meetingB);
 };
 
+export const getConflicts = (course: Course, selected: Course[]): Course[] =>
+  selected.filter((other) => coursesConflict(course, other));
+
 export const hasConflict = (course: Course, selected: Course[]): boolean =>
-  selected.some((other) => coursesConflict(course, other));
+  getConflicts(course, selected).length > 0;

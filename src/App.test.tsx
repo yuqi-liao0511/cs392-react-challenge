@@ -57,6 +57,33 @@ const schedule: CourseSchedule = {
   ],
 };
 
+const multipleConflictSchedule: CourseSchedule = {
+  title: 'Computer Science Courses',
+  courses: [
+    {
+      id: 'cs213',
+      term: 'Fall',
+      number: '213',
+      title: 'Monday Course',
+      meets: 'M 10:00-11:00',
+    },
+    {
+      id: 'cs214',
+      term: 'Fall',
+      number: '214',
+      title: 'Tuesday Course',
+      meets: 'Tu 10:00-11:00',
+    },
+    {
+      id: 'cs215',
+      term: 'Fall',
+      number: '215',
+      title: 'Monday and Tuesday Course',
+      meets: 'MTu 10:30-10:45',
+    },
+  ],
+};
+
 const signedInUser = {
   displayName: 'Ada Lovelace',
   email: 'ada@example.com',
@@ -169,12 +196,46 @@ describe('course schedule app', () => {
 
     expect(firstCourse).toHaveAttribute('aria-pressed', 'true');
     expect(conflictingCourse).toBeDisabled();
+    expect(screen.getByRole('status')).toHaveTextContent('Conflicts with CS 213');
+    expect(firstCourse).not.toHaveTextContent('Conflicts with');
     expect(nonConflictingCourse).toBeEnabled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Course plan' }));
     expect(screen.getByRole('dialog')).toHaveTextContent(
       'Fall CS 213: Introduction to Computing',
     );
+  });
+
+  it('updates conflict messages immediately when selected courses are removed', () => {
+    render(<App />);
+
+    const selectedCourse = screen.getByRole('button', { name: /Fall CS 213/ });
+    const conflictingCourse = screen.getByRole('button', { name: /Fall CS 214/ });
+
+    fireEvent.click(selectedCourse);
+    expect(screen.getByRole('status')).toHaveTextContent('Conflicts with CS 213');
+
+    fireEvent.click(selectedCourse);
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(conflictingCourse).toBeEnabled();
+  });
+
+  it('names every selected course that conflicts with a blocked course', () => {
+    vi.mocked(useDataQuery).mockReturnValue([
+      multipleConflictSchedule,
+      false,
+      undefined,
+    ]);
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Fall CS 213/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Fall CS 214/ }));
+
+    expect(screen.getByRole('button', { name: /Fall CS 215/ })).toBeDisabled();
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Conflicts with CS 213, CS 214',
+    );
+    expect(screen.getAllByRole('status')).toHaveLength(1);
   });
 
   it('filters the selected term by normalized title or course number and can clear search', () => {

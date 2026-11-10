@@ -8,7 +8,7 @@ import {
 } from './services/scheduleService';
 import { useDataQuery } from './hooks/useDataQuery';
 import { useForm } from 'react-hook-form';
-import { hasConflict } from './utilities/timeConflicts';
+import { getConflicts } from './utilities/timeConflicts';
 import { CourseForm, courseFormResolver } from './types/courseForm';
 import { signInWithGoogle, signOutUser } from './services/authService';
 import { useAuth } from './hooks/useAuth';
@@ -224,7 +224,10 @@ const CourseList = ({
     <ul className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,11rem),1fr))] items-stretch gap-3">
       {termCourses.map((course) => {
         const isSelected = selectedIds.has(course.id);
-        const isBlocked = !isSelected && hasConflict(course, selectedCourses);
+        const conflictingCourses = isSelected
+          ? []
+          : getConflicts(course, selectedCourses);
+        const isBlocked = conflictingCourses.length > 0;
 
         return (
           <li
@@ -238,7 +241,7 @@ const CourseList = ({
                 isSelected
                   ? 'border-blue-600 bg-blue-50 text-gray-900'
                   : isBlocked
-                    ? 'cursor-not-allowed border-gray-300 bg-white text-gray-500 opacity-50'
+                    ? 'cursor-not-allowed border-gray-400 bg-gray-100 text-gray-700'
                     : 'border-gray-300 bg-white text-gray-900 hover:bg-gray-50'
               }`}
               onClick={() => toggleSelected(course.id)}
@@ -267,8 +270,16 @@ const CourseList = ({
                 )}
               </span>
               {isBlocked && (
-                <span className="sr-only">
-                  Unavailable because it conflicts with a selected course.
+                <span
+                  aria-atomic="true"
+                  aria-live="polite"
+                  className="mb-3 block text-sm font-medium text-red-800"
+                  role="status"
+                >
+                  Conflicts with{' '}
+                  {conflictingCourses
+                    .map((conflictingCourse) => `CS ${conflictingCourse.number}`)
+                    .join(', ')}
                 </span>
               )}
               <span className="mb-4 block text-base leading-relaxed text-gray-700">
