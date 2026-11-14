@@ -320,24 +320,61 @@ const CourseList = ({
 
 // ---------- Course plan (pop-up content) ----------
 
-const CoursePlan = ({ selected }: { selected: Course[] }) =>
-  selected.length === 0 ? (
-    <p className="text-gray-700">
-      No courses selected yet. Close this window and click a course card to add
-      it to your plan.
-    </p>
-  ) : (
-    <ul className="max-h-[60vh] space-y-3 overflow-y-auto">
-      {selected.map((course) => (
-        <li className="border-b border-gray-200 pb-3 last:border-b-0" key={course.id}>
-          <h3 className="font-semibold text-gray-900">
-            {course.term} CS {course.number}: {course.title}
-          </h3>
-          <p className="mt-1 text-sm text-gray-700">{course.meets}</p>
-        </li>
-      ))}
-    </ul>
+const CoursePlan = ({ selected }: { selected: Course[] }) => {
+  const groupedCourses = terms
+    .map((term) => ({
+      term,
+      courses: selected.filter((course) => course.term === term),
+    }))
+    .filter(({ courses: termCourses }) => termCourses.length > 0);
+
+  return (
+    <div>
+      <p aria-atomic="true" aria-live="polite" className="mb-4 font-medium text-gray-900">
+        {selected.length} {selected.length === 1 ? 'course' : 'courses'} selected
+      </p>
+      {selected.length === 0 ? (
+        <p className="text-gray-700">
+          No courses selected yet. Close this window and click a course card to add
+          it to your plan.
+        </p>
+      ) : (
+        <div className="max-h-[60vh] space-y-4 overflow-y-auto">
+          {groupedCourses.map(({ term, courses: termCourses }) => (
+            <section aria-labelledby={`course-plan-${term}`} key={term}>
+              <h3
+                className="mb-2 font-semibold text-gray-900"
+                id={`course-plan-${term}`}
+              >
+                {term}: {termCourses.length}{' '}
+                {termCourses.length === 1 ? 'course' : 'courses'}
+              </h3>
+              {termCourses.length > 4 && (
+                <p className="mb-2 text-sm font-medium text-amber-800" role="status">
+                  {term} has {termCourses.length} courses. Most students take at
+                  most 4.
+                </p>
+              )}
+              <ul className="space-y-3">
+                {termCourses.map((course) => (
+                  <li
+                    className="border-b border-gray-200 pb-3 last:border-b-0"
+                    key={course.id}
+                  >
+                    <h4 className="font-semibold text-gray-900">
+                      {course.term} CS {course.number}: {course.title}
+                    </h4>
+                    <p className="mt-1 text-sm text-gray-700">{course.meets}</p>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
+        </div>
+      )}
+    </div>
   );
+};
 
 // ---------- Term page ----------
 
@@ -411,7 +448,7 @@ const TermPage = ({
           onClick={() => setIsPlanOpen(true)}
           type="button"
         >
-          Course plan
+          Course plan ({selectedCourses.length})
         </button>
       </div>
 

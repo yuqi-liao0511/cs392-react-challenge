@@ -84,6 +84,26 @@ const multipleConflictSchedule: CourseSchedule = {
   ],
 };
 
+const overloadSchedule: CourseSchedule = {
+  title: 'Computer Science Courses',
+  courses: [
+    ...Array.from({ length: 5 }, (_, index) => ({
+      id: `fall${index + 1}`,
+      term: 'Fall' as const,
+      number: `${301 + index}`,
+      title: `Fall Course ${index + 1}`,
+      meets: `M ${8 + index}:00-${9 + index}:00`,
+    })),
+    {
+      id: 'winter301',
+      term: 'Winter',
+      number: '301',
+      title: 'Winter Course',
+      meets: 'Tu 10:00-11:00',
+    },
+  ],
+};
+
 const signedInUser = {
   displayName: 'Ada Lovelace',
   email: 'ada@example.com',
@@ -200,10 +220,57 @@ describe('course schedule app', () => {
     expect(firstCourse).not.toHaveTextContent('Conflicts with');
     expect(nonConflictingCourse).toBeEnabled();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Course plan' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Course plan (1)' }));
     expect(screen.getByRole('dialog')).toHaveTextContent(
       'Fall CS 213: Introduction to Computing',
     );
+    expect(screen.getByRole('dialog')).toHaveTextContent('1 course selected');
+    expect(screen.getByRole('dialog')).toHaveTextContent('Fall: 1 course');
+  });
+
+  it('shows live total and per-term counts with an overload warning', () => {
+    vi.mocked(useDataQuery).mockReturnValue([overloadSchedule, false, undefined]);
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Fall CS 301/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Fall CS 302/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Fall CS 303/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Fall CS 304/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Fall CS 305/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Winter' }));
+    fireEvent.click(screen.getByRole('button', { name: /Winter CS 301/ }));
+
+    expect(
+      screen.getByRole('button', { name: 'Course plan (6)' }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Course plan (6)' }));
+
+    expect(screen.getByRole('dialog')).toHaveTextContent('6 courses selected');
+    expect(screen.getByRole('dialog')).toHaveTextContent('Fall: 5 courses');
+    expect(screen.getByRole('dialog')).toHaveTextContent('Winter: 1 course');
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Fall has 5 courses. Most students take at most 4.',
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fall' }));
+    fireEvent.click(screen.getByRole('button', { name: /Fall CS 305/ }));
+
+    expect(screen.getByRole('button', { name: 'Course plan (5)' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toHaveTextContent('5 courses selected');
+    expect(screen.getByRole('dialog')).toHaveTextContent('Fall: 4 courses');
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('keeps the empty course plan message when no courses are selected', () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Course plan (0)' }));
+
+    expect(screen.getByRole('dialog')).toHaveTextContent('0 courses selected');
+    expect(screen.getByRole('dialog')).toHaveTextContent(
+      'No courses selected yet. Close this window and click a course card to add it to your plan.',
+    );
+    expect(screen.queryByText(/Fall:|Winter:|Spring:/)).not.toBeInTheDocument();
   });
 
   it('updates conflict messages immediately when selected courses are removed', () => {
@@ -272,7 +339,7 @@ describe('course schedule app', () => {
     });
 
     expect(screen.queryByRole('button', { name: /Fall CS 213/ })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Course plan' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Course plan/ }));
     expect(screen.getByRole('dialog')).toHaveTextContent(
       'Fall CS 213: Introduction to Computing',
     );
