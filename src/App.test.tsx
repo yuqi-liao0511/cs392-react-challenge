@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
@@ -100,6 +101,54 @@ const overloadSchedule: CourseSchedule = {
       number: '301',
       title: 'Winter Course',
       meets: 'Tu 10:00-11:00',
+    },
+  ],
+};
+
+const calendarSchedule: CourseSchedule = {
+  title: 'Computer Science Courses',
+  courses: [
+    {
+      id: 'cs213',
+      term: 'Fall',
+      number: '213',
+      title: 'Monday Wednesday Friday Course',
+      meets: 'MWF 14:00-15:20',
+    },
+    {
+      id: 'cs214',
+      term: 'Fall',
+      number: '214',
+      title: 'Early Tuesday Thursday Course',
+      meets: 'TuTh 6:00-9:00',
+    },
+    {
+      id: 'cs215',
+      term: 'Fall',
+      number: '215',
+      title: 'Late Wednesday Course',
+      meets: 'W 17:00-19:30',
+    },
+    {
+      id: 'cs216',
+      term: 'Fall',
+      number: '216',
+      title: 'Friday Course',
+      meets: 'F 12:00-13:00',
+    },
+    {
+      id: 'cs217',
+      term: 'Fall',
+      number: '217',
+      title: 'Unscheduled Course',
+      meets: '',
+    },
+    {
+      id: 'winter301',
+      term: 'Winter',
+      number: '301',
+      title: 'Winter Course',
+      meets: 'W 9:00-10:00',
     },
   ],
 };
@@ -252,6 +301,18 @@ describe('course schedule app', () => {
       'Fall has 5 courses. Most students take at most 4.',
     );
 
+    fireEvent.click(screen.getByRole('button', { name: 'Calendar' }));
+    fireEvent.click(
+      within(screen.getByRole('group', { name: 'Calendar term' })).getByRole(
+        'button',
+        { name: 'Fall' },
+      ),
+    );
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Fall has 5 courses. Most students take at most 4.',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'List' }));
+
     fireEvent.click(screen.getByRole('button', { name: 'Fall' }));
     fireEvent.click(screen.getByRole('button', { name: /Fall CS 305/ }));
 
@@ -271,6 +332,105 @@ describe('course schedule app', () => {
       'No courses selected yet. Close this window and click a course card to add it to your plan.',
     );
     expect(screen.queryByText(/Fall:|Winter:|Spring:/)).not.toBeInTheDocument();
+  });
+
+  it('shows weekday meetings with extended hours and lists courses without meeting times', () => {
+    vi.mocked(useDataQuery).mockReturnValue([calendarSchedule, false, undefined]);
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Fall CS 213/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Fall CS 214/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Fall CS 215/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Fall CS 217/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Course plan/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Calendar' }));
+
+    expect(
+      screen.getByRole('group', {
+        name: 'Fall course calendar, Monday through Friday, 06:00 to 20:00',
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('group', {
+        name: 'CS 213, 14:00–15:20, Monday',
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('group', {
+        name: 'CS 213, 14:00–15:20, Wednesday',
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('group', {
+        name: 'CS 213, 14:00–15:20, Friday',
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('group', {
+        name: 'CS 214, 06:00–09:00, Tuesday',
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('group', {
+        name: 'CS 215, 17:00–19:30, Wednesday',
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'No scheduled time.' })).toBeVisible();
+    expect(screen.getByText('CS 217: Unscheduled Course')).toBeVisible();
+  });
+
+  it('starts on the main term and can switch calendar terms, including an empty term', () => {
+    vi.mocked(useDataQuery).mockReturnValue([calendarSchedule, false, undefined]);
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Fall CS 213/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Winter' }));
+    fireEvent.click(screen.getByRole('button', { name: /Winter CS 301/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Course plan/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Calendar' }));
+
+    const calendarTerms = within(
+      screen.getByRole('group', { name: 'Calendar term' }),
+    );
+    expect(calendarTerms.getByRole('button', { name: 'Winter' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(
+      screen.getByRole('group', { name: 'CS 301, 09:00–10:00, Wednesday' }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(calendarTerms.getByRole('button', { name: 'Fall' }));
+    expect(
+      screen.getByRole('group', { name: 'CS 213, 14:00–15:20, Monday' }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(calendarTerms.getByRole('button', { name: 'Spring' }));
+    expect(
+      screen.getByText('No courses selected for this term.'),
+    ).toBeInTheDocument();
+  });
+
+  it('updates the calendar immediately when a course is selected or unselected', () => {
+    vi.mocked(useDataQuery).mockReturnValue([calendarSchedule, false, undefined]);
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Fall CS 213/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Course plan/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Calendar' }));
+
+    expect(
+      screen.queryByRole('group', { name: 'CS 216, 12:00–13:00, Friday' }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Fall CS 216/ }));
+    expect(
+      screen.getByRole('group', { name: 'CS 216, 12:00–13:00, Friday' }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Fall CS 216/ }));
+    expect(
+      screen.queryByRole('group', { name: 'CS 216, 12:00–13:00, Friday' }),
+    ).not.toBeInTheDocument();
   });
 
   it('updates conflict messages immediately when selected courses are removed', () => {

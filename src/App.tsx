@@ -9,6 +9,10 @@ import {
 import { useDataQuery } from './hooks/useDataQuery';
 import { useForm } from 'react-hook-form';
 import { getConflicts } from './utilities/timeConflicts';
+import {
+  parseCourseMeeting,
+  type CourseWeekday,
+} from './utilities/courseMeetings';
 import { CourseForm, courseFormResolver } from './types/courseForm';
 import { signInWithGoogle, signOutUser } from './services/authService';
 import { useAuth } from './hooks/useAuth';
@@ -123,7 +127,7 @@ const Modal = ({ isOpen, onClose, title, children }: ModalProps) => {
       <section
         aria-labelledby="modal-title"
         aria-modal="true"
-        className="w-full max-w-lg rounded-lg bg-white p-6 shadow-xl"
+        className="w-full max-w-5xl rounded-lg bg-white p-6 shadow-xl"
         role="dialog"
       >
         <div className="mb-4 flex items-center justify-between gap-4">
@@ -320,7 +324,203 @@ const CourseList = ({
 
 // ---------- Course plan (pop-up content) ----------
 
-const CoursePlan = ({ selected }: { selected: Course[] }) => {
+const weekdays: { code: CourseWeekday; label: string }[] = [
+  { code: 'M', label: 'Monday' },
+  { code: 'Tu', label: 'Tuesday' },
+  { code: 'W', label: 'Wednesday' },
+  { code: 'Th', label: 'Thursday' },
+  { code: 'F', label: 'Friday' },
+];
+
+const formatTime = (minutes: number): string => {
+  const hours = Math.floor(minutes / 60);
+  const minutePart = minutes % 60;
+  return `${hours < 10 ? `0${hours}` : hours}:${minutePart < 10 ? `0${minutePart}` : minutePart}`;
+};
+
+const CourseCalendar = ({
+  courses,
+  term,
+}: {
+  courses: Course[];
+  term: CourseTerm;
+}) => {
+  if (courses.length === 0) {
+    return <p className="text-gray-700">No courses selected for this term.</p>;
+  }
+
+  const meetings = courses.map((course) => ({
+    course,
+    meeting: parseCourseMeeting(course.meets),
+  }));
+  const scheduledMeetings = meetings.filter(
+    (
+      entry,
+    ): entry is {
+      course: Course;
+      meeting: NonNullable<typeof entry.meeting>;
+    } => entry.meeting !== null,
+  );
+  const unscheduledCourses = meetings
+    .filter(({ meeting }) => meeting === null)
+    .map(({ course }) => course);
+  const earliest = Math.min(
+    8 * 60,
+    ...scheduledMeetings.map(({ meeting }) => meeting.start),
+  );
+  const latest = Math.max(
+    18 * 60,
+    ...scheduledMeetings.map(({ meeting }) => meeting.end),
+  );
+  const startHour = Math.floor(earliest / 60);
+  const endHour = Math.ceil(latest / 60);
+  const hourHeight = 48;
+  const timeGutter = 64;
+  const dayWidth = 136;
+  const headerHeight = 32;
+  const gridWidth = timeGutter + dayWidth * weekdays.length;
+  const gridHeight = headerHeight + (endHour - startHour) * hourHeight;
+
+  return (
+    <div>
+      <div className="overflow-x-auto">
+        <svg
+          aria-label={`${term} course calendar, Monday through Friday, ${formatTime(startHour * 60)} to ${formatTime(endHour * 60)}`}
+          className="min-w-[48rem] font-sans"
+          role="group"
+          viewBox={`0 0 ${gridWidth} ${gridHeight}`}
+          width="100%"
+        >
+          <g aria-hidden="true" className="fill-gray-700 text-xs">
+            {weekdays.map(({ label }, index) => (
+              <text
+                key={label}
+                textAnchor="middle"
+                x={timeGutter + dayWidth * index + dayWidth / 2}
+                y="20"
+              >
+                {label}
+              </text>
+            ))}
+          </g>
+          <g aria-hidden="true">
+            {Array.from({ length: endHour - startHour + 1 }, (_, index) => {
+              const hour = startHour + index;
+              const y = headerHeight + index * hourHeight;
+              return (
+                <g key={hour}>
+                  <line
+                    className="stroke-gray-200"
+                    x1={timeGutter}
+                    x2={gridWidth}
+                    y1={y}
+                    y2={y}
+                  />
+                  <text
+                    className="fill-gray-600 text-[11px]"
+                    textAnchor="end"
+                    x={timeGutter - 8}
+                    y={y + 4}
+                  >
+                    {formatTime(hour * 60)}
+                  </text>
+                </g>
+              );
+            })}
+            {weekdays.map(({ label }, index) => (
+              <line
+                className="stroke-gray-200"
+                key={label}
+                x1={timeGutter + dayWidth * index}
+                x2={timeGutter + dayWidth * index}
+                y1={headerHeight}
+                y2={gridHeight}
+              />
+            ))}
+            <line
+              className="stroke-gray-200"
+              x1={gridWidth}
+              x2={gridWidth}
+              y1={headerHeight}
+              y2={gridHeight}
+            />
+          </g>
+          {scheduledMeetings.reduce<ReactNode[]>(
+            (events, { course, meeting }) => {
+              weekdays.forEach(({ code, label }, dayIndex) => {
+                if (meeting.days.indexOf(code) === -1) return;
+
+                const x = timeGutter + dayWidth * dayIndex + 4;
+                const y =
+                  headerHeight +
+                  ((meeting.start - startHour * 60) / 60) * hourHeight;
+                const height = ((meeting.end - meeting.start) / 60) * hourHeight;
+                const accessibleLabel = `CS ${course.number}, ${formatTime(meeting.start)}–${formatTime(meeting.end)}, ${label}`;
+
+                events.push(
+                  <g
+                    aria-label={accessibleLabel}
+                    key={`${course.id}-${label}`}
+                    role="group"
+                  >
+                    <rect
+                      className="fill-blue-100 stroke-blue-700"
+                      height={height}
+                      rx="4"
+                      width={dayWidth - 8}
+                      x={x}
+                      y={y}
+                    />
+                    <text
+                      className="fill-blue-950 text-[11px] font-medium"
+                      x={x + 6}
+                      y={y + 15}
+                    >
+                      {`CS ${course.number}, ${formatTime(meeting.start)}–${formatTime(meeting.end)}`}
+                    </text>
+                  </g>,
+                );
+              });
+
+              return events;
+            },
+            [],
+          )}
+        </svg>
+      </div>
+      {unscheduledCourses.length > 0 && (
+        <section aria-labelledby="unscheduled-courses-heading" className="mt-4">
+          <h3
+            className="font-semibold text-gray-900"
+            id="unscheduled-courses-heading"
+          >
+            No scheduled time.
+          </h3>
+          <ul className="mt-2 space-y-1 text-sm text-gray-700">
+            {unscheduledCourses.map((course) => (
+              <li key={course.id}>
+                CS {course.number}: {course.title}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </div>
+  );
+};
+
+const CoursePlan = ({
+  selected,
+  currentTerm,
+}: {
+  selected: Course[];
+  currentTerm: CourseTerm;
+}) => {
+  const [view, setView] = useState<'list' | 'calendar'>('list');
+  const [calendarTerm, setCalendarTerm] = useState(currentTerm);
+  const calendarCourses = selected.filter(
+    (course) => course.term === calendarTerm,
+  );
   const groupedCourses = terms
     .map((term) => ({
       term,
@@ -333,43 +533,98 @@ const CoursePlan = ({ selected }: { selected: Course[] }) => {
       <p aria-atomic="true" aria-live="polite" className="mb-4 font-medium text-gray-900">
         {selected.length} {selected.length === 1 ? 'course' : 'courses'} selected
       </p>
-      {selected.length === 0 ? (
-        <p className="text-gray-700">
-          No courses selected yet. Close this window and click a course card to add
-          it to your plan.
-        </p>
+      <div aria-label="Course plan view" className="mb-4 flex gap-2" role="group">
+        {(['list', 'calendar'] as const).map((nextView) => (
+          <button
+            aria-pressed={view === nextView}
+            className={`rounded-md border px-3 py-1.5 text-sm font-medium capitalize focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${
+              view === nextView
+                ? 'border-blue-700 bg-blue-700 text-white'
+                : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'
+            }`}
+            key={nextView}
+            onClick={() => setView(nextView)}
+            type="button"
+          >
+            {nextView === 'list' ? 'List' : 'Calendar'}
+          </button>
+        ))}
+      </div>
+      {view === 'list' ? (
+        selected.length === 0 ? (
+          <p className="text-gray-700">
+            No courses selected yet. Close this window and click a course card to add
+            it to your plan.
+          </p>
+        ) : (
+          <div className="max-h-[60vh] space-y-4 overflow-y-auto">
+            {groupedCourses.map(({ term, courses: termCourses }) => (
+              <section aria-labelledby={`course-plan-${term}`} key={term}>
+                <h3
+                  className="mb-2 font-semibold text-gray-900"
+                  id={`course-plan-${term}`}
+                >
+                  {term}: {termCourses.length}{' '}
+                  {termCourses.length === 1 ? 'course' : 'courses'}
+                </h3>
+                {termCourses.length > 4 && (
+                  <p className="mb-2 text-sm font-medium text-amber-800" role="status">
+                    {term} has {termCourses.length} courses. Most students take at
+                    most 4.
+                  </p>
+                )}
+                <ul className="space-y-3">
+                  {termCourses.map((course) => (
+                    <li
+                      className="border-b border-gray-200 pb-3 last:border-b-0"
+                      key={course.id}
+                    >
+                      <h4 className="font-semibold text-gray-900">
+                        {course.term} CS {course.number}: {course.title}
+                      </h4>
+                      <p className="mt-1 text-sm text-gray-700">{course.meets}</p>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ))}
+          </div>
+        )
       ) : (
         <div className="max-h-[60vh] space-y-4 overflow-y-auto">
-          {groupedCourses.map(({ term, courses: termCourses }) => (
-            <section aria-labelledby={`course-plan-${term}`} key={term}>
-              <h3
-                className="mb-2 font-semibold text-gray-900"
-                id={`course-plan-${term}`}
+          <div aria-label="Calendar term" className="flex flex-wrap gap-2" role="group">
+            {terms.map((term) => (
+              <button
+                aria-pressed={calendarTerm === term}
+                className={`rounded-md border px-3 py-1.5 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${
+                  calendarTerm === term
+                    ? 'border-blue-700 bg-blue-700 text-white'
+                    : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'
+                }`}
+                key={term}
+                onClick={() => setCalendarTerm(term)}
+                type="button"
               >
-                {term}: {termCourses.length}{' '}
-                {termCourses.length === 1 ? 'course' : 'courses'}
-              </h3>
-              {termCourses.length > 4 && (
-                <p className="mb-2 text-sm font-medium text-amber-800" role="status">
-                  {term} has {termCourses.length} courses. Most students take at
-                  most 4.
-                </p>
-              )}
-              <ul className="space-y-3">
-                {termCourses.map((course) => (
-                  <li
-                    className="border-b border-gray-200 pb-3 last:border-b-0"
-                    key={course.id}
-                  >
-                    <h4 className="font-semibold text-gray-900">
-                      {course.term} CS {course.number}: {course.title}
-                    </h4>
-                    <p className="mt-1 text-sm text-gray-700">{course.meets}</p>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))}
+                {term}
+              </button>
+            ))}
+          </div>
+          <section aria-labelledby="calendar-term-heading">
+            <h3
+              className="font-semibold text-gray-900"
+              id="calendar-term-heading"
+            >
+              {calendarTerm}: {calendarCourses.length}{' '}
+              {calendarCourses.length === 1 ? 'course' : 'courses'}
+            </h3>
+            {calendarCourses.length > 4 && (
+              <p className="mb-2 mt-1 text-sm font-medium text-amber-800" role="status">
+                {calendarTerm} has {calendarCourses.length} courses. Most students
+                take at most 4.
+              </p>
+            )}
+            <CourseCalendar courses={calendarCourses} term={calendarTerm} />
+          </section>
         </div>
       )}
     </div>
@@ -464,7 +719,7 @@ const TermPage = ({
       />
 
       <Modal isOpen={isPlanOpen} onClose={() => setIsPlanOpen(false)} title="Course plan">
-        <CoursePlan selected={selectedCourses} />
+        <CoursePlan selected={selectedCourses} currentTerm={selection} />
       </Modal>
     </>
   );
