@@ -490,6 +490,120 @@ describe('course schedule app', () => {
     expect(screen.getAllByRole('button', { name: /Fall CS/ })).toHaveLength(3);
   });
 
+  it('shows every course, including very early ones, before any filter is changed', () => {
+    vi.mocked(useDataQuery).mockReturnValue([
+      {
+        title: 'Computer Science Courses',
+        courses: [
+          { id: 'w397', term: 'Fall', number: '397-4', title: 'Early Course', meets: 'TuTh 5:00-6:20' },
+          { id: 's396', term: 'Fall', number: '396-5', title: 'Earlier Course', meets: 'TuTh 3:30-4:50' },
+          { id: 'f101', term: 'Fall', number: '101', title: 'Daytime Course', meets: 'MWF 11:00-11:50' },
+        ],
+      },
+      false,
+      undefined,
+    ]);
+    render(<App />);
+
+    expect(screen.getAllByRole('button', { name: /Fall CS/ })).toHaveLength(3);
+    expect(screen.queryByText(/Showing \d+ of \d+ Fall courses/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Starts after')).toHaveDisplayValue('Any time');
+    expect(screen.getByLabelText('Ends before')).toHaveDisplayValue('Any time');
+  });
+
+  it('filters by every meeting day and keeps courses without a meeting time visible', () => {
+    vi.mocked(useDataQuery).mockReturnValue([calendarSchedule, false, undefined]);
+    render(<App />);
+
+    const filterDays = within(screen.getByRole('group', { name: 'Filter by day' }));
+    fireEvent.click(filterDays.getByRole('button', { name: 'Fri' }));
+
+    expect(screen.queryByRole('button', { name: /Fall CS 213/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Fall CS 216/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Fall CS 214/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Fall CS 215/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Fall CS 217/ })).toBeInTheDocument();
+    expect(screen.getByText('Showing 3 of 5 Fall courses')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset filters' }));
+    expect(screen.getAllByRole('button', { name: /Fall CS/ })).toHaveLength(5);
+    expect(screen.queryByText(/Showing \d+ of \d+ Fall courses/)).not.toBeInTheDocument();
+  });
+
+  it('limits administrator Edit links to courses that pass the time filters', () => {
+    vi.mocked(useAuth).mockReturnValue(signedIn);
+    vi.mocked(useAdminStatus).mockReturnValue(admin);
+    vi.mocked(useDataQuery).mockReturnValue([calendarSchedule, false, undefined]);
+    render(<App />);
+
+    fireEvent.click(
+      within(screen.getByRole('group', { name: 'Filter by day' })).getByRole(
+        'button',
+        { name: 'Fri' },
+      ),
+    );
+
+    expect(screen.getAllByRole('link', { name: 'Edit' })).toHaveLength(3);
+    expect(
+      screen.getAllByRole('link', { name: 'Edit' }).map((link) => link.getAttribute('href')),
+    ).toEqual([
+      '/courses/cs214/edit',
+      '/courses/cs215/edit',
+      '/courses/cs217/edit',
+    ]);
+  });
+
+  it('combines search and inclusive start/end time filters', () => {
+    vi.mocked(useDataQuery).mockReturnValue([calendarSchedule, false, undefined]);
+    render(<App />);
+
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search courses' }), {
+      target: { value: 'course' },
+    });
+    fireEvent.change(screen.getByLabelText('Starts after'), {
+      target: { value: String(14 * 60) },
+    });
+    fireEvent.change(screen.getByLabelText('Ends before'), {
+      target: { value: String(16 * 60) },
+    });
+
+    expect(screen.getByRole('button', { name: /Fall CS 213/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Fall CS 214/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Fall CS 215/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Fall CS 216/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Fall CS 217/ })).toBeInTheDocument();
+    expect(screen.getByText('Showing 2 of 5 Fall courses')).toBeInTheDocument();
+  });
+
+  it('shows the filter-specific empty message and keeps filtered selections in the plan', () => {
+    vi.mocked(useDataQuery).mockReturnValue([schedule, false, undefined]);
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText('Starts after'), {
+      target: { value: String(21 * 60) },
+    });
+    fireEvent.change(screen.getByLabelText('Ends before'), {
+      target: { value: String(6 * 60) },
+    });
+    expect(screen.getByText('No Fall courses match your filters.')).toBeInTheDocument();
+    expect(screen.getByText('Showing 0 of 3 Fall courses')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset filters' }));
+    fireEvent.click(screen.getByRole('button', { name: /Fall CS 213/ }));
+    fireEvent.click(
+      within(screen.getByRole('group', { name: 'Filter by day' })).getByRole(
+        'button',
+        { name: 'Fri' },
+      ),
+    );
+    expect(screen.queryByRole('button', { name: /Fall CS 213/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /^Course plan/ }));
+    expect(screen.getByRole('dialog')).toHaveTextContent(
+      'Fall CS 213: Introduction to Computing',
+    );
+  });
+
   it('keeps selected courses in the plan while they are hidden by search', () => {
     render(<App />);
 
@@ -503,6 +617,10 @@ describe('course schedule app', () => {
     expect(screen.getByRole('dialog')).toHaveTextContent(
       'Fall CS 213: Introduction to Computing',
     );
+    fireEvent.click(screen.getByRole('button', { name: 'Calendar' }));
+    expect(
+      screen.getByRole('group', { name: 'CS 213, 10:00–11:00, Monday' }),
+    ).toBeInTheDocument();
   });
 
   it('shows admin Edit links only for courses that match the search', () => {

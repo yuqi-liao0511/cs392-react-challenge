@@ -180,6 +180,18 @@ const TermSelector = ({ selection, setSelection }: TermSelectorProps) => (
   </div>
 );
 
+const filterWeekdays: { code: CourseWeekday; label: string }[] = [
+  { code: 'M', label: 'Mon' },
+  { code: 'Tu', label: 'Tue' },
+  { code: 'W', label: 'Wed' },
+  { code: 'Th', label: 'Thu' },
+  { code: 'F', label: 'Fri' },
+];
+
+// Defaults mean "any time", so no course is hidden until a filter is changed.
+const defaultStartTime = 0;
+const defaultEndTime = 24 * 60;
+
 // ---------- Course list ----------
 
 interface CourseListProps {
@@ -203,122 +215,268 @@ const CourseList = ({
   toggleSelected,
   onEdit,
 }: CourseListProps) => {
+  const [enabledDays, setEnabledDays] = useState<Set<CourseWeekday>>(
+    () => new Set(filterWeekdays.map(({ code }) => code)),
+  );
+  const [startsAfter, setStartsAfter] = useState(defaultStartTime);
+  const [endsBefore, setEndsBefore] = useState(defaultEndTime);
   const normalizedSearch = searchQuery.trim().replace(/\s+/g, ' ').toLowerCase();
-  const termCourses = courses.filter((course) => {
-    if (course.term !== selection) return false;
-    if (!normalizedSearch) return true;
+  const termCourses = courses.filter((course) => course.term === selection);
+  const filteredCourses = termCourses.filter((course) => {
+    const matchesSearch =
+      !normalizedSearch ||
+      course.title.toLowerCase().replace(/\s+/g, ' ').includes(normalizedSearch) ||
+      course.number.toLowerCase().replace(/\s+/g, ' ').includes(normalizedSearch);
+    if (!matchesSearch) return false;
+
+    const meeting = parseCourseMeeting(course.meets);
+    if (!meeting) return true;
 
     return (
-      course.title.toLowerCase().replace(/\s+/g, ' ').includes(normalizedSearch) ||
-      course.number.toLowerCase().replace(/\s+/g, ' ').includes(normalizedSearch)
+      meeting.days.every((day) => enabledDays.has(day)) &&
+      meeting.start >= startsAfter &&
+      meeting.end <= endsBefore
     );
   });
+  const hasTimeFilter =
+    enabledDays.size !== filterWeekdays.length ||
+    startsAfter !== defaultStartTime ||
+    endsBefore !== defaultEndTime;
+  const hasActiveFilter = hasTimeFilter || normalizedSearch.length > 0;
+  const resetFilters = () => {
+    setEnabledDays(new Set(filterWeekdays.map(({ code }) => code)));
+    setStartsAfter(defaultStartTime);
+    setEndsBefore(defaultEndTime);
+  };
 
-  if (termCourses.length === 0) {
+  const filterPanel = (
+    <section
+      aria-labelledby="filter-by-time-heading"
+      className="mb-4 rounded-lg border border-gray-200 p-4 font-sans"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2
+            className="mb-3 text-base font-semibold text-gray-900"
+            id="filter-by-time-heading"
+          >
+            Filter by time
+          </h2>
+          <div className="flex flex-wrap items-end gap-6">
+            <fieldset>
+              <legend className="mb-2 text-sm font-medium text-gray-800">
+                Days
+              </legend>
+              <div
+                aria-label="Filter by day"
+                className="flex flex-wrap gap-2"
+                role="group"
+              >
+                {filterWeekdays.map(({ code, label }) => {
+                  const isEnabled = enabledDays.has(code);
+                  return (
+                    <button
+                      aria-pressed={isEnabled}
+                      className={`rounded-md border px-3 py-1.5 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${
+                        isEnabled
+                          ? 'border-blue-700 bg-blue-700 text-white'
+                          : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'
+                      }`}
+                      key={code}
+                      onClick={() =>
+                        setEnabledDays((current) => {
+                          const next = new Set(current);
+                          if (next.has(code)) next.delete(code);
+                          else next.add(code);
+                          return next;
+                        })
+                      }
+                      type="button"
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </fieldset>
+            <div className="flex flex-wrap gap-3">
+              <div className="flex flex-col gap-1">
+                <label className="text-sm font-medium text-gray-800" htmlFor="starts-after">
+                  Starts after
+                </label>
+                <select
+                  className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
+                  id="starts-after"
+                  onChange={(event) => setStartsAfter(Number(event.target.value))}
+                  value={startsAfter}
+                >
+                  <option value={defaultStartTime}>Any time</option>
+                  {Array.from({ length: 16 }, (_, index) => {
+                    const minutes = (index + 6) * 60;
+                    const hour = index + 6;
+                    return (
+                      <option key={minutes} value={minutes}>
+                        {hour}:00
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-sm font-medium text-gray-800" htmlFor="ends-before">
+                  Ends before
+                </label>
+                <select
+                  className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
+                  id="ends-before"
+                  onChange={(event) => setEndsBefore(Number(event.target.value))}
+                  value={endsBefore}
+                >
+                  <option value={defaultEndTime}>Any time</option>
+                  {Array.from({ length: 16 }, (_, index) => {
+                    const minutes = (index + 6) * 60;
+                    const hour = index + 6;
+                    return (
+                      <option key={minutes} value={minutes}>
+                        {hour}:00
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+        <button
+          className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
+          onClick={resetFilters}
+          type="button"
+        >
+          Reset filters
+        </button>
+      </div>
+      {hasActiveFilter && (
+        <p aria-live="polite" className="mt-3 text-sm text-gray-700">
+          Showing {filteredCourses.length} of {termCourses.length} {selection}{' '}
+          courses
+        </p>
+      )}
+    </section>
+  );
+
+  if (filteredCourses.length === 0) {
     return (
-      <p className="font-sans text-gray-700">
-        {normalizedSearch
-          ? `No ${selection} courses match “${normalizedSearch}”.`
-          : `No ${selection} courses are currently available.`}
-      </p>
+      <>
+        {filterPanel}
+        <p className="font-sans text-gray-700">
+          {hasTimeFilter
+            ? `No ${selection} courses match your filters.`
+            : normalizedSearch
+              ? `No ${selection} courses match “${normalizedSearch}”.`
+              : `No ${selection} courses are currently available.`}
+        </p>
+      </>
     );
   }
 
   return (
-    <ul className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,11rem),1fr))] items-stretch gap-3">
-      {termCourses.map((course) => {
-        const isSelected = selectedIds.has(course.id);
-        const conflictingCourses = isSelected
-          ? []
-          : getConflicts(course, selectedCourses);
-        const isBlocked = conflictingCourses.length > 0;
+    <>
+      {filterPanel}
+      <ul className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,11rem),1fr))] items-stretch gap-3">
+        {filteredCourses.map((course) => {
+          const isSelected = selectedIds.has(course.id);
+          const conflictingCourses = isSelected
+            ? []
+            : getConflicts(course, selectedCourses);
+          const isBlocked = conflictingCourses.length > 0;
 
-        return (
-          <li
-            className="flex min-w-0 flex-col items-start gap-2"
-            key={course.id}
-          >
-            <button
-              aria-pressed={isSelected}
-              disabled={isBlocked}
-              className={`flex h-full w-full flex-col rounded-lg border p-4 text-left font-sans shadow-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${
-                isSelected
-                  ? 'border-blue-600 bg-blue-50 text-gray-900'
-                  : isBlocked
-                    ? 'cursor-not-allowed border-gray-400 bg-gray-100 text-gray-700'
-                    : 'border-gray-300 bg-white text-gray-900 hover:bg-gray-50'
-              }`}
-              onClick={() => toggleSelected(course.id)}
-              type="button"
+          return (
+            <li
+              className="flex min-w-0 flex-col items-start gap-2"
+              key={course.id}
             >
-              <span className="mb-3 flex w-full items-center justify-between gap-2 text-xl font-medium leading-snug">
-                <span>
-                  <span className="text-blue-700">{course.term}</span> CS{' '}
-                  {course.number}
-                </span>
-                {isSelected && (
-                  <span
-                    aria-hidden="true"
-                    className="flex size-6 shrink-0 items-center justify-center rounded-full bg-blue-700 text-sm text-white"
-                  >
-                    ✓
+              <button
+                aria-pressed={isSelected}
+                disabled={isBlocked}
+                className={`flex h-full w-full flex-col rounded-lg border p-4 text-left font-sans shadow-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${
+                  isSelected
+                    ? 'border-blue-600 bg-blue-50 text-gray-900'
+                    : isBlocked
+                      ? 'cursor-not-allowed border-gray-400 bg-gray-100 text-gray-700'
+                      : 'border-gray-300 bg-white text-gray-900 hover:bg-gray-50'
+                }`}
+                onClick={() => toggleSelected(course.id)}
+                type="button"
+              >
+                <span className="mb-3 flex w-full items-center justify-between gap-2 text-xl font-medium leading-snug">
+                  <span>
+                    <span className="text-blue-700">{course.term}</span> CS{' '}
+                    {course.number}
                   </span>
-                )}
+                  {isSelected && (
+                    <span
+                      aria-hidden="true"
+                      className="flex size-6 shrink-0 items-center justify-center rounded-full bg-blue-700 text-sm text-white"
+                    >
+                      ✓
+                    </span>
+                  )}
+                  {isBlocked && (
+                    <span
+                      aria-hidden="true"
+                      className="flex size-5 shrink-0 items-center justify-center rounded-full bg-gray-200 text-xs text-gray-700"
+                    >
+                      ✕
+                    </span>
+                  )}
+                </span>
                 {isBlocked && (
                   <span
-                    aria-hidden="true"
-                    className="flex size-5 shrink-0 items-center justify-center rounded-full bg-gray-200 text-xs text-gray-700"
+                    aria-atomic="true"
+                    aria-live="polite"
+                    className="mb-3 block text-sm font-medium text-red-800"
+                    role="status"
                   >
-                    ✕
+                    Conflicts with{' '}
+                    {conflictingCourses
+                      .map((conflictingCourse) => `CS ${conflictingCourse.number}`)
+                      .join(', ')}
                   </span>
                 )}
-              </span>
-              {isBlocked && (
-                <span
-                  aria-atomic="true"
-                  aria-live="polite"
-                  className="mb-3 block text-sm font-medium text-red-800"
-                  role="status"
-                >
-                  Conflicts with{' '}
-                  {conflictingCourses
-                    .map((conflictingCourse) => `CS ${conflictingCourse.number}`)
-                    .join(', ')}
+                <span className="mb-4 block text-base leading-relaxed text-gray-700">
+                  {course.title}
                 </span>
-              )}
-              <span className="mb-4 block text-base leading-relaxed text-gray-700">
-                {course.title}
-              </span>
-              <span className="mt-auto block w-full border-t border-gray-200 pt-3 text-[0.9375rem] text-gray-700">
-                {course.meets}
-              </span>
-            </button>
-            {isAdmin && (
-              <a
-                className="font-sans text-sm font-medium text-blue-700 underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
-                href={`/courses/${encodeURIComponent(course.id)}/edit`}
-                onClick={(event) => {
-                  if (
-                    event.button !== 0 ||
-                    event.metaKey ||
-                    event.ctrlKey ||
-                    event.shiftKey ||
-                    event.altKey
-                  ) {
-                    return;
-                  }
+                <span className="mt-auto block w-full border-t border-gray-200 pt-3 text-[0.9375rem] text-gray-700">
+                  {course.meets}
+                </span>
+              </button>
+              {isAdmin && (
+                <a
+                  className="font-sans text-sm font-medium text-blue-700 underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
+                  href={`/courses/${encodeURIComponent(course.id)}/edit`}
+                  onClick={(event) => {
+                    if (
+                      event.button !== 0 ||
+                      event.metaKey ||
+                      event.ctrlKey ||
+                      event.shiftKey ||
+                      event.altKey
+                    ) {
+                      return;
+                    }
 
-                  event.preventDefault();
-                  onEdit(course.id);
-                }}
-              >
-                Edit
-              </a>
-            )}
-          </li>
-        );
-      })}
-    </ul>
+                    event.preventDefault();
+                    onEdit(course.id);
+                  }}
+                >
+                  Edit
+                </a>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </>
   );
 };
 
