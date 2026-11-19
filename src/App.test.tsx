@@ -166,6 +166,7 @@ const admin = { isAdmin: true, isLoading: false, error: undefined };
 
 describe('course schedule app', () => {
   beforeEach(() => {
+    window.localStorage.clear();
     vi.mocked(useAuth).mockReturnValue(signedOut);
     vi.mocked(useAdminStatus).mockReturnValue(adminStatus);
     vi.mocked(useDataQuery).mockReturnValue([schedule, false, undefined]);
@@ -275,6 +276,113 @@ describe('course schedule app', () => {
     );
     expect(screen.getByRole('dialog')).toHaveTextContent('1 course selected');
     expect(screen.getByRole('dialog')).toHaveTextContent('Fall: 1 course');
+  });
+
+  it('keeps course selections separate across named schedules', () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Fall CS 213/ }));
+    expect(screen.getByRole('button', { name: /Plan A/ })).toHaveTextContent('(1)');
+
+    fireEvent.click(screen.getByRole('button', { name: 'New schedule' }));
+    expect(screen.getByRole('button', { name: /Plan B/ })).toHaveTextContent('(0)');
+    expect(screen.getByRole('button', { name: /Fall CS 213/ })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Fall CS 214/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Plan A/ }));
+    expect(screen.getByRole('button', { name: /Fall CS 213/ })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.getByRole('button', { name: /Fall CS 214/ })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+  });
+
+  it('can rename, duplicate, and confirm deletion of schedules', () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+    const nameInput = screen.getByRole('textbox', { name: 'Schedule name' });
+    fireEvent.change(nameInput, { target: { value: 'Primary' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save name' }));
+    expect(screen.getByRole('button', { name: /Primary/ })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Primary/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Duplicate' }));
+    expect(screen.getByRole('button', { name: /Primary Copy/ })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete schedule' }));
+    expect(screen.getByText(/Delete “Primary Copy”/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm delete' }));
+    expect(screen.queryByRole('button', { name: /Primary Copy/ })).not.toBeInTheDocument();
+  });
+
+  it('restores schedules after reload and falls back to Plan A for broken data', () => {
+    window.localStorage.setItem(
+      'courseSchedules',
+      JSON.stringify({
+        schedules: [
+          { id: 'a', name: 'Saved Plan', courseIds: ['cs213'] },
+          { id: 'b', name: 'Second Plan', courseIds: [] },
+        ],
+        activeScheduleId: 'b',
+      }),
+    );
+    const { unmount } = render(<App />);
+    expect(screen.getByRole('button', { name: /Second Plan/ })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    unmount();
+
+    window.localStorage.setItem('courseSchedules', '{broken');
+    render(<App />);
+    expect(screen.getByRole('button', { name: /Plan A/ })).toBeInTheDocument();
+  });
+
+  it('never deletes the last schedule', () => {
+    render(<App />);
+    expect(screen.getByRole('button', { name: 'Delete schedule' })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'New schedule' }));
+    expect(screen.getByRole('button', { name: 'Delete schedule' })).toBeEnabled();
+  });
+
+  it('saves clicked courses so they come back after a reload, under one storage key', () => {
+    const { unmount } = render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: /Fall CS 213/ }));
+    unmount();
+
+    expect(Object.keys(window.localStorage)).toEqual(['courseSchedules']);
+
+    render(<App />);
+    expect(screen.getByRole('button', { name: /Plan A/ })).toHaveTextContent('(1)');
+    expect(screen.getByRole('button', { name: /Fall CS 213/ })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  });
+
+  it('names schedules Plan B to Plan Z, then Plan 27', () => {
+    render(<App />);
+    for (let i = 0; i < 26; i += 1) {
+      fireEvent.click(screen.getByRole('button', { name: 'New schedule' }));
+    }
+
+    expect(screen.getByRole('button', { name: /^Plan Z/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Plan 27/ })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.queryByRole('button', { name: /^Plan \[/ })).not.toBeInTheDocument();
   });
 
   it('shows live total and per-term counts with an overload warning', () => {

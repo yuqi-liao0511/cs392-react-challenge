@@ -21,6 +21,82 @@ import type { User } from 'firebase/auth';
 
 const terms: CourseTerm[] = ['Fall', 'Winter', 'Spring'];
 const formTerms = CourseForm.shape.term.options;
+const SCHEDULE_STORAGE_KEY = 'courseSchedules';
+
+interface NamedSchedule {
+  id: string;
+  name: string;
+  courseIds: string[];
+}
+
+interface StoredSchedules {
+  schedules: NamedSchedule[];
+  activeScheduleId: string;
+}
+
+const createScheduleId = () =>
+  `schedule-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+const defaultSchedules = (): StoredSchedules => {
+  const first: NamedSchedule = { id: createScheduleId(), name: 'Plan A', courseIds: [] };
+  return { schedules: [first], activeScheduleId: first.id };
+};
+
+// "Plan A" to "Plan Z", then "Plan 27", "Plan 28", ... skipping names already used.
+const nextScheduleName = (schedules: NamedSchedule[]) => {
+  const usedNames = new Set(schedules.map((schedule) => schedule.name));
+  for (let i = 0; i < 26; i += 1) {
+    const name = `Plan ${String.fromCharCode(65 + i)}`;
+    if (!usedNames.has(name)) return name;
+  }
+  let planNumber = 27;
+  while (usedNames.has(`Plan ${planNumber}`)) planNumber += 1;
+  return `Plan ${planNumber}`;
+};
+
+const isNamedSchedule = (value: unknown): value is NamedSchedule => {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as Partial<NamedSchedule>;
+  return (
+    typeof candidate.id === 'string' &&
+    typeof candidate.name === 'string' &&
+    candidate.name.trim().length > 0 &&
+    Array.isArray(candidate.courseIds) &&
+    candidate.courseIds.every((courseId) => typeof courseId === 'string')
+  );
+};
+
+const parseStoredSchedules = (payload: unknown): StoredSchedules | undefined => {
+  if (typeof payload !== 'object' || payload === null) return undefined;
+  const { schedules, activeScheduleId } = payload as {
+    schedules?: unknown;
+    activeScheduleId?: unknown;
+  };
+
+  if (!Array.isArray(schedules) || schedules.length === 0) return undefined;
+  if (!schedules.every(isNamedSchedule)) return undefined;
+
+  const ids = schedules.map((schedule) => schedule.id);
+  if (new Set(ids).size !== ids.length) return undefined;
+
+  const activeId =
+    typeof activeScheduleId === 'string' && ids.indexOf(activeScheduleId) !== -1
+      ? activeScheduleId
+      : schedules[0].id;
+
+  return { schedules, activeScheduleId: activeId };
+};
+
+// Missing or broken saved data starts over with one empty "Plan A".
+const loadSchedules = (): StoredSchedules => {
+  try {
+    const saved = window.localStorage.getItem(SCHEDULE_STORAGE_KEY);
+    if (saved === null) return defaultSchedules();
+    return parseStoredSchedules(JSON.parse(saved)) ?? defaultSchedules();
+  } catch {
+    return defaultSchedules();
+  }
+};
 
 // Closing the Google popup is not an error worth showing.
 const IGNORED_AUTH_ERRORS = ['auth/popup-closed-by-user', 'auth/cancelled-popup-request'];
@@ -797,6 +873,8 @@ interface TermPageProps {
   setSelection: (term: CourseTerm) => void;
   isAdmin: boolean;
   onEdit: (courseId: string) => void;
+  selectedIds: Set<string>;
+  toggleSelected: (courseId: string) => void;
 }
 
 const TermPage = ({
@@ -805,24 +883,11 @@ const TermPage = ({
   setSelection,
   isAdmin,
   onEdit,
+  selectedIds,
+  toggleSelected,
 }: TermPageProps) => {
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [isPlanOpen, setIsPlanOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-
-  const toggleSelected = (courseId: string) => {
-    setSelectedIds((current) => {
-      const next = new Set(current);
-
-      if (next.has(courseId)) {
-        next.delete(courseId);
-      } else {
-        next.add(courseId);
-      }
-
-      return next;
-    });
-  };
 
   const selectedCourses = courses.filter((course) => selectedIds.has(course.id));
 
@@ -1087,6 +1152,30 @@ const App = () => {
   const error = dbError ?? parsed.error;
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
   const [selection, setSelection] = useState<CourseTerm>('Fall');
+  const [storedSchedules, setStoredSchedules] =
+    useState<StoredSchedules>(loadSchedules);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState('');
+  const [isDeleteConfirming, setIsDeleteConfirming] = useState(false);
+
+  const activeSchedule =
+    storedSchedules.schedules.find(
+      (schedule) => schedule.id === storedSchedules.activeScheduleId,
+    ) ?? storedSchedules.schedules[0];
+
+  useEffect(() => {
+    const payload: StoredSchedules = {
+      schedules: storedSchedules.schedules,
+      activeScheduleId: activeSchedule.id,
+    };
+    const serialized = JSON.stringify(payload);
+
+    try {
+      window.localStorage.setItem(SCHEDULE_STORAGE_KEY, serialized);
+    } catch {
+      // Selection still works for this session when storage is unavailable.
+    }
+  }, [storedSchedules, activeSchedule.id]);
 
   useEffect(() => {
     const handlePopState = () => setCurrentPath(window.location.pathname);
@@ -1115,6 +1204,105 @@ const App = () => {
   const editCourse = schedule?.courses.find(
     (course) => course.id === editCourseId,
   );
+
+  const selectSchedule = (scheduleId: string) => {
+    setStoredSchedules((current) => ({
+      ...current,
+      activeScheduleId: scheduleId,
+    }));
+    setIsRenaming(false);
+    setIsDeleteConfirming(false);
+  };
+
+  const newSchedule = () => {
+    setStoredSchedules((current) => {
+      const schedule: NamedSchedule = {
+        id: createScheduleId(),
+        name: nextScheduleName(current.schedules),
+        courseIds: [],
+      };
+      return {
+        schedules: [...current.schedules, schedule],
+        activeScheduleId: schedule.id,
+      };
+    });
+    setIsRenaming(false);
+    setIsDeleteConfirming(false);
+  };
+
+  const duplicateSchedule = () => {
+    let name = `${activeSchedule.name} Copy`;
+    let copyNumber = 2;
+    const usedNames = new Set(
+      storedSchedules.schedules.map((schedule) => schedule.name),
+    );
+    while (usedNames.has(name)) {
+      name = `${activeSchedule.name} Copy ${copyNumber}`;
+      copyNumber += 1;
+    }
+
+    const schedule: NamedSchedule = {
+      id: createScheduleId(),
+      name,
+      courseIds: [...activeSchedule.courseIds],
+    };
+    setStoredSchedules((current) => ({
+      schedules: [...current.schedules, schedule],
+      activeScheduleId: schedule.id,
+    }));
+  };
+
+  const startRename = () => {
+    setRenameValue(activeSchedule.name);
+    setIsRenaming(true);
+    setIsDeleteConfirming(false);
+  };
+
+  const saveRename = () => {
+    const name = renameValue.trim();
+    if (!name) return;
+    setStoredSchedules((current) => ({
+      ...current,
+      schedules: current.schedules.map((schedule) =>
+        schedule.id === activeSchedule.id ? { ...schedule, name } : schedule,
+      ),
+    }));
+    setIsRenaming(false);
+  };
+
+  const deleteActiveSchedule = () => {
+    if (storedSchedules.schedules.length === 1) return;
+    const deletedIndex = storedSchedules.schedules.findIndex(
+      (schedule) => schedule.id === activeSchedule.id,
+    );
+    const remaining = storedSchedules.schedules.filter(
+      (schedule) => schedule.id !== activeSchedule.id,
+    );
+    const nextActive =
+      remaining[Math.min(deletedIndex, remaining.length - 1)];
+    setStoredSchedules({
+      schedules: remaining,
+      activeScheduleId: nextActive.id,
+    });
+    setIsDeleteConfirming(false);
+  };
+
+  // Adds or removes a course in the active schedule only, starting from the latest state.
+  const toggleActiveCourse = (courseId: string) => {
+    setStoredSchedules((current) => ({
+      ...current,
+      schedules: current.schedules.map((schedule) => {
+        if (schedule.id !== current.activeScheduleId) return schedule;
+        const isSelected = schedule.courseIds.indexOf(courseId) !== -1;
+        return {
+          ...schedule,
+          courseIds: isSelected
+            ? schedule.courseIds.filter((id) => id !== courseId)
+            : [...schedule.courseIds, courseId],
+        };
+      }),
+    }));
+  };
 
   return (
     <>
@@ -1184,6 +1372,136 @@ const App = () => {
         {schedule && !isLoading && !error && (
           <>
             <div hidden={isEditingCourse}>
+              <section
+                aria-label="Schedules"
+                className="mb-4 rounded-lg border border-gray-200 p-3 font-sans"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <div
+                    aria-label="Named schedules"
+                    className="flex flex-wrap gap-2"
+                    role="group"
+                  >
+                    {storedSchedules.schedules.map((scheduleOption) => {
+                      const isActive =
+                        scheduleOption.id === activeSchedule.id;
+                      const count = scheduleOption.courseIds.length;
+                      return (
+                        <button
+                          aria-pressed={isActive}
+                          className={`rounded-md border px-3 py-2 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${
+                            isActive
+                              ? 'border-blue-700 bg-blue-700 text-white'
+                              : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'
+                          }`}
+                          key={scheduleOption.id}
+                          onClick={() => selectSchedule(scheduleOption.id)}
+                          type="button"
+                        >
+                          {scheduleOption.name} ({count})
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <button
+                    className="rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
+                    onClick={newSchedule}
+                    type="button"
+                  >
+                    New schedule
+                  </button>
+                  <button
+                    className="rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
+                    onClick={startRename}
+                    type="button"
+                  >
+                    Rename
+                  </button>
+                  <button
+                    className="rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
+                    onClick={duplicateSchedule}
+                    type="button"
+                  >
+                    Duplicate
+                  </button>
+                  <button
+                    className="rounded-md border border-red-300 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={storedSchedules.schedules.length === 1}
+                    onClick={() => {
+                      setIsDeleteConfirming(true);
+                      setIsRenaming(false);
+                    }}
+                    type="button"
+                  >
+                    Delete schedule
+                  </button>
+                </div>
+
+                {isRenaming && (
+                  <form
+                    className="mt-3 flex flex-wrap items-end gap-2"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      saveRename();
+                    }}
+                  >
+                    <div className="flex flex-col gap-1">
+                      <label
+                        className="text-sm font-medium text-gray-800"
+                        htmlFor="schedule-name"
+                      >
+                        Schedule name
+                      </label>
+                      <input
+                        className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
+                        id="schedule-name"
+                        onChange={(event) => setRenameValue(event.target.value)}
+                        value={renameValue}
+                      />
+                    </div>
+                    <button
+                      className="rounded-md bg-blue-700 px-3 py-2 text-sm font-medium text-white hover:bg-blue-800"
+                      disabled={!renameValue.trim()}
+                      type="submit"
+                    >
+                      Save name
+                    </button>
+                    <button
+                      className="rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
+                      onClick={() => setIsRenaming(false)}
+                      type="button"
+                    >
+                      Cancel
+                    </button>
+                  </form>
+                )}
+
+                {isDeleteConfirming && (
+                  <div
+                    aria-live="polite"
+                    className="mt-3 flex flex-wrap items-center gap-3 rounded-md border border-red-200 bg-red-50 p-3"
+                    role="alert"
+                  >
+                    <p className="text-sm font-medium text-red-900">
+                      Delete “{activeSchedule.name}”? This cannot be undone.
+                    </p>
+                    <button
+                      className="rounded-md bg-red-700 px-3 py-2 text-sm font-medium text-white hover:bg-red-800"
+                      onClick={deleteActiveSchedule}
+                      type="button"
+                    >
+                      Confirm delete
+                    </button>
+                    <button
+                      className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
+                      onClick={() => setIsDeleteConfirming(false)}
+                      type="button"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </section>
               <TermPage
                 courses={schedule.courses}
                 selection={selection}
@@ -1192,6 +1510,8 @@ const App = () => {
                 onEdit={(courseId) =>
                   navigate(`/courses/${encodeURIComponent(courseId)}/edit`)
                 }
+                selectedIds={new Set(activeSchedule.courseIds)}
+                toggleSelected={toggleActiveCourse}
               />
             </div>
             {isEditingCourse && user && isAdmin && !isAdminLoading && !adminError && (
